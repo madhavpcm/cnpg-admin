@@ -15,13 +15,15 @@ func main() {
 
 	app.Route("/", func() app.Composer { return &ui.Dashboard{} })
 	app.Route("/clusters", func() app.Composer { return &ui.Clusters{} })
-	app.Route("/clusters/:name", func() app.Composer { return &ui.ClusterDetail{} })
+	app.Route("/clusters/new", func() app.Composer { return &ui.CreateCluster{} })
+	app.Route("/clusters/:namespace/:name", func() app.Composer { return &ui.ClusterDetail{} })
 	app.Route("/users", func() app.Composer { return &ui.Users{} })
 	app.Route("/query", func() app.Composer { return &ui.Query{} })
 	app.Route("/tables", func() app.Composer { return &ui.Tables{} })
 	app.Route("/metrics", func() app.Composer { return &ui.Metrics{} })
 	app.Route("/logs", func() app.Composer { return &ui.Logs{} })
 	app.Route("/gitops", func() app.Composer { return &ui.GitOps{} })
+	app.Route("/settings", func() app.Composer { return &ui.Settings{} })
 
 	app.RunWhenOnBrowser()
 
