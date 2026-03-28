@@ -4,14 +4,15 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 
 	"github.com/cnpg-admin/internal/config"
 	"github.com/cnpg-admin/internal/handler"
 	"github.com/cnpg-admin/internal/k8s"
 	"github.com/cnpg-admin/internal/middleware"
+	"github.com/cnpg-admin/internal/ui"
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
+	"github.com/maxence-charriere/go-app/v10/pkg/app"
 )
 
 func main() {
@@ -20,12 +21,6 @@ func main() {
 	k8sClient, err := k8s.NewClient(cfg)
 	if err != nil {
 		log.Fatalf("Failed to initialize k8s client: %v", err)
-	}
-
-	// Determine static files directory
-	staticDir := "./web/static"
-	if _, err := os.Stat(staticDir); os.IsNotExist(err) {
-		staticDir = "/web/static"
 	}
 
 	r := chi.NewRouter()
@@ -70,13 +65,43 @@ func main() {
 		})
 	})
 
-	// Serve static files
-	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, staticDir+"/index.html")
-	})
-	r.Handle("/wasm/*", http.FileServer(http.Dir(staticDir)))
-	r.Handle("/css/*", http.FileServer(http.Dir(staticDir)))
-	r.Handle("/js/*", http.FileServer(http.Dir(staticDir)))
+	app.Route("/", func() app.Composer { return &ui.Dashboard{} })
+	app.Route("/clusters", func() app.Composer { return &ui.Clusters{} })
+	app.Route("/clusters/:name", func() app.Composer { return &ui.ClusterDetail{} })
+	app.Route("/users", func() app.Composer { return &ui.Users{} })
+	app.Route("/query", func() app.Composer { return &ui.Query{} })
+	app.Route("/tables", func() app.Composer { return &ui.Tables{} })
+	app.Route("/metrics", func() app.Composer { return &ui.Metrics{} })
+	app.Route("/logs", func() app.Composer { return &ui.Logs{} })
+	app.Route("/gitops", func() app.Composer { return &ui.GitOps{} })
+
+	appHandler := &app.Handler{
+		Styles: []string{"/app.css"},
+	}
+
+	noCache := func(h http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+			w.Header().Set("Pragma", "no-cache")
+			w.Header().Set("Expires", "0")
+			h.ServeHTTP(w, r)
+		})
+	}
+
+	webFS := http.FileServer(http.Dir("web"))
+
+	staticFiles := []string{"/app.css", "/wasm.js", "/manifest.json"}
+	r.With(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			for _, path := range staticFiles {
+				if r.URL.Path == path || r.URL.Path == "/wasm/app.wasm" {
+					noCache(webFS).ServeHTTP(w, r)
+					return
+				}
+			}
+			next.ServeHTTP(w, r)
+		})
+	}).Handle("/*", appHandler)
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	log.Printf("Starting CNPG Admin server on %s", addr)

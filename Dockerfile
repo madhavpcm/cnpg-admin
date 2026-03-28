@@ -1,10 +1,7 @@
 # Build stage
-FROM golang:1.26-alpine AS builder
+FROM docker.io/library/golang:1.26 AS builder
 
 WORKDIR /app
-
-# Install dependencies for cross-compilation
-RUN apk add --no-cache curl
 
 # Copy Go modules
 COPY go.mod go.sum ./
@@ -20,8 +17,9 @@ COPY cmd/wasm ./cmd/wasm
 COPY internal/ui ./internal/ui
 RUN GOOS=js GOARCH=wasm CGO_ENABLED=0 go build -o /app.wasm ./cmd/wasm
 
-# Download Go WASM exec JS
-RUN curl -sL https://raw.githubusercontent.com/golang/go/go1.26.1/misc/wasm/wasm_exec.js -o /web/static/wasm.js
+# Copy wasm_exec.js from Go installation (in golang image it's at /usr/local/go)
+RUN mkdir -p /web/static/wasm && \
+    cp /usr/local/go/misc/wasm/wasm_exec.js /web/static/wasm/wasm.js
 
 # Final stage - distroless minimal image
 FROM gcr.io/distroless/static:nonroot
