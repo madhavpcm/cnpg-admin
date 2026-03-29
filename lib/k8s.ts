@@ -62,7 +62,6 @@ export async function getCluster(ns: string, name: string) {
 
 export async function patchCluster(ns: string, name: string, patch: object) {
     const api = getCustomApi();
-    // @ts-ignore - headers in ConfigurationOptions not fully typed in this version
     return api.patchNamespacedCustomObject({
         group: CLUSTERS_GROUP,
         version: CLUSTERS_VERSION,
@@ -72,7 +71,7 @@ export async function patchCluster(ns: string, name: string, patch: object) {
         body: patch,
     }, {
         headers: { 'Content-Type': 'application/merge-patch+json' }
-    });
+    } as any);
 }
 
 export async function updateClusterUser(ns: string, name: string, username: string, updates: Partial<{ login: boolean, superuser: boolean }>) {

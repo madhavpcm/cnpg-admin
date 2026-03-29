@@ -9,6 +9,7 @@ interface RawCluster {
     metadata: { name: string; namespace: string };
     spec?: { instances?: number; imageName?: string };
     status?: { phase?: string; readyInstances?: number };
+    gitops?: { status: string };
 }
 
 interface ClusterRow {
@@ -17,6 +18,7 @@ interface ClusterRow {
     status: string;
     instances: number;
     ready: number;
+    gitopsStatus: string;
 }
 
 function parseCluster(raw: RawCluster): ClusterRow {
@@ -26,6 +28,7 @@ function parseCluster(raw: RawCluster): ClusterRow {
         status: raw.status?.phase ?? 'Unknown',
         instances: raw.spec?.instances ?? 0,
         ready: raw.status?.readyInstances ?? 0,
+        gitopsStatus: raw.gitops?.status ?? 'NOT_GITOPS',
     };
 }
 
@@ -33,6 +36,22 @@ function statusBadge(status: string) {
     if (status === 'Cluster in healthy state') return 'badge badge-success';
     if (status === 'Unhealthy') return 'badge badge-warning';
     return 'badge badge-info';
+}
+
+function gitopsBadge(status: string) {
+    switch (status) {
+        case 'HELM_GITOPS': return 'badge badge-primary';
+        case 'HELM_UNCONNECTED': return 'badge badge-warning';
+        default: return 'badge badge-secondary';
+    }
+}
+
+function gitopsLabel(status: string) {
+    switch (status) {
+        case 'HELM_GITOPS': return 'GitOps';
+        case 'HELM_UNCONNECTED': return 'Helm';
+        default: return 'Direct';
+    }
 }
 
 export default function ClustersPage() {
@@ -102,6 +121,7 @@ export default function ClustersPage() {
                             <th>Namespace</th>
                             <th>Instances</th>
                             <th>Status</th>
+                            <th>Managed By</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
@@ -132,6 +152,9 @@ export default function ClustersPage() {
                                 </td>
                                 <td>
                                     <span className={statusBadge(cl.status)}>{cl.status}</span>
+                                </td>
+                                <td>
+                                    <span className={gitopsBadge(cl.gitopsStatus)}>{gitopsLabel(cl.gitopsStatus)}</span>
                                 </td>
                                 <td>
                                     <button

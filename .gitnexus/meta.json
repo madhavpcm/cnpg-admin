@@ -1,13 +1,13 @@
 {
   "repoPath": "/home/madhavpcm/Dev/cnpg-admin",
-  "lastCommit": "85619abe0c50caa1b2db0b02a3a6b07a50b22110",
-  "indexedAt": "2026-03-28T19:42:16.104Z",
+  "lastCommit": "9371ec2b5f0f6f1f8a6ce61cc2e3e5e89d2f15ab",
+  "indexedAt": "2026-03-29T12:31:57.414Z",
   "stats": {
-    "files": 19,
-    "nodes": 181,
-    "edges": 250,
-    "communities": 1,
-    "processes": 3,
+    "files": 36,
+    "nodes": 246,
+    "edges": 364,
+    "communities": 9,
+    "processes": 14,
     "embeddings": 0
   }
 }

@@ -5,6 +5,7 @@ import {
     getCluster,
     deleteCluster,
 } from '@/lib/k8s';
+import { discoverGitOpsStatus } from '@/lib/gitops/detector';
 
 interface Params {
     params: Promise<{ namespace: string; name: string }>;
@@ -16,11 +17,18 @@ export async function GET(_req: Request, { params }: Params) {
         const cluster = mockClusters.find(
             (c) => c.metadata.name === name && c.metadata.namespace === namespace
         ) ?? mockClusters[0];
-        return NextResponse.json({ ...cluster, metadata: { ...cluster.metadata, name, namespace } });
+        const enriched = { ...cluster, metadata: { ...cluster.metadata, name, namespace } };
+        return NextResponse.json({
+            ...enriched,
+            gitops: await discoverGitOpsStatus(enriched)
+        });
     }
     try {
         const data = await getCluster(namespace, name);
-        return NextResponse.json(data);
+        return NextResponse.json({
+            ...data,
+            gitops: await discoverGitOpsStatus(data)
+        });
     } catch (e) {
         console.error(`[/api/clusters/${namespace}/${name}] GET failed:`, e);
         return NextResponse.json({ error: String(e) }, { status: 404 });

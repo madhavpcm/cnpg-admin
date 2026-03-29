@@ -16,6 +16,14 @@ interface RawCluster {
         resources?: { requests?: { cpu?: string; memory?: string }; limits?: { cpu?: string; memory?: string } };
     };
     status?: { phase?: string; readyInstances?: number };
+    gitops?: {
+        status: string;
+        releaseName?: string;
+        releaseNamespace?: string;
+        chart?: string;
+        repoUrl?: string;
+        valuesPath?: string;
+    };
 }
 
 interface User { username: string; role: string; created_at: string; }
@@ -50,6 +58,15 @@ export default function ClusterDetailPage({
     const [queryResults, setQueryResults] = useState<QueryRow[]>([]);
     const [queryError, setQueryError] = useState<string | null>(null);
     const [queryLoading, setQueryLoading] = useState(false);
+
+    // GitOps Modal State
+    const [isGitOpsModalOpen, setIsGitOpsModalOpen] = useState(false);
+    const [gitopsField, setGitopsField] = useState('instances');
+    const [gitopsValue, setGitopsValue] = useState('');
+    const [gitopsProposal, setGitopsProposal] = useState<any>(null);
+    const [gitopsLoading, setGitopsLoading] = useState(false);
+    const [gitopsError, setGitopsError] = useState<string | null>(null);
+    const [prResult, setPrResult] = useState<any>(null);
 
     useEffect(() => {
         const base = `/api/clusters/${namespace}/${name}`;
@@ -114,6 +131,52 @@ export default function ClusterDetailPage({
         }
     };
 
+    const handlePropose = async () => {
+        setGitopsLoading(true);
+        setGitopsError(null);
+        try {
+            const resp = await fetch('/api/gitops/propose', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ namespace, name, field: gitopsField, value: gitopsValue }),
+            });
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.error || 'Proposal failed');
+            setGitopsProposal(data);
+        } catch (e) {
+            setGitopsError(String(e));
+        } finally {
+            setGitopsLoading(false);
+        }
+    };
+
+    const handleCommit = async () => {
+        setGitopsLoading(true);
+        setGitopsError(null);
+        try {
+            const resp = await fetch('/api/gitops/commit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    namespace,
+                    name,
+                    field: gitopsField,
+                    value: gitopsValue,
+                    newContent: gitopsProposal.newContent,
+                    file: gitopsProposal.file
+                }),
+            });
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.error || 'Commit failed');
+            setPrResult(data);
+            setGitopsProposal(null);
+        } catch (e) {
+            setGitopsError(String(e));
+        } finally {
+            setGitopsLoading(false);
+        }
+    };
+
     if (loading) return <div className="page"><Loading message={`Loading cluster ${name}..`} /></div>;
     if (!cluster) return <div className="page"><p className="alert alert-error">Cluster not found.</p></div>;
 
@@ -128,8 +191,44 @@ export default function ClusterDetailPage({
                 <span className={`badge ${cluster.status?.phase === 'Cluster in healthy state' ? 'badge-success' : 'badge-warning'}`}>
                     {cluster.status?.phase ?? 'Unknown'}
                 </span>
+                {cluster.gitops?.status !== 'NOT_GITOPS' && (
+                    <span className={`badge ${cluster.gitops?.status === 'HELM_GITOPS' ? 'badge-primary' : 'badge-warning'}`}>
+                        {cluster.gitops?.status === 'HELM_GITOPS' ? 'GitOps-Synced' : 'Helm-Managed'}
+                    </span>
+                )}
                 <span className="text-gray-400 text-sm">ns: {namespace}</span>
             </div>
+
+            {/* GitOps Banner */}
+            {cluster.gitops?.status === 'HELM_UNCONNECTED' && (
+                <div className="alert alert-warning mb-8 flex justify-between items-center">
+                    <div className="flex items-center gap-3">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                            <line x1="12" y1="9" x2="12" y2="13" />
+                            <line x1="12" y1="17" x2="12.01" y2="17" />
+                        </svg>
+                        <div>
+                            <p className="font-bold">Helm Managed - Not Connected</p>
+                            <p className="text-sm">This cluster is managed by Helm ({cluster.gitops.releaseName}). Connect a repository to enable GitOps edits.</p>
+                        </div>
+                    </div>
+                    <button className="btn btn-sm btn-primary" onClick={() => router.push('/settings')}>Connect Repository</button>
+                </div>
+            )}
+
+            {cluster.gitops?.status === 'HELM_GITOPS' && (
+                <div className="alert alert-info mb-8 flex items-center gap-3">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                        <polyline points="22 4 12 14.01 9 11.01" />
+                    </svg>
+                    <div>
+                        <p className="font-bold">GitOps Enabled</p>
+                        <p className="text-sm">Configuration is synced with <code>{cluster.gitops.repoUrl}</code> ({cluster.gitops.valuesPath})</p>
+                    </div>
+                </div>
+            )}
 
             <div className="flex gap-6">
                 {/* Sub-nav */}
@@ -152,7 +251,7 @@ export default function ClusterDetailPage({
 
                 {/* Content */}
                 <div className="flex-1">
-                    {activeTab === 'Overview' && <OverviewTab cluster={cluster} />}
+                    {activeTab === 'Overview' && <OverviewTab cluster={cluster} onEditGitOps={() => setIsGitOpsModalOpen(true)} />}
                     {activeTab === 'Users' && (
                         <UsersTab
                             namespace={namespace}
@@ -191,20 +290,116 @@ export default function ClusterDetailPage({
                     )}
                 </div>
             </div>
+
+            {/* GitOps Edit Modal */}
+            {isGitOpsModalOpen && (
+                <div className="modal-overlay">
+                    <div className="card max-w-2xl w-full">
+                        <div className="flex justify-between items-center mb-6">
+                            <h2>Edit via GitOps</h2>
+                            <button className="btn btn-outline btn-sm" onClick={() => {
+                                setIsGitOpsModalOpen(false);
+                                setGitopsProposal(null);
+                                setPrResult(null);
+                            }}>✕</button>
+                        </div>
+
+                        {prResult ? (
+                            <div className="text-center py-8">
+                                <div className="badge badge-success mb-4">PR Created Successfully!</div>
+                                <p className="mb-6">A pull request has been opened to update the cluster configuration.</p>
+                                <a href={prResult.url} target="_blank" rel="noopener noreferrer" className="btn btn-primary">
+                                    View Pull Request on GitHub
+                                </a>
+                            </div>
+                        ) : gitopsProposal ? (
+                            <div className="space-y-6">
+                                <div className="alert alert-info py-2 text-sm">
+                                    Verified path: <code>{gitopsProposal.file}</code>
+                                </div>
+                                <div className="bg-gray-900 p-4 rounded-lg overflow-auto max-h-60">
+                                    <pre className="text-xs text-green-400 leading-relaxed font-mono">
+                                        {gitopsProposal.diff}
+                                    </pre>
+                                </div>
+                                <div className="flex justify-end gap-3 mt-8">
+                                    <button className="btn btn-outline" onClick={() => setGitopsProposal(null)}>Back</button>
+                                    <button className="btn btn-primary" onClick={handleCommit} disabled={gitopsLoading}>
+                                        {gitopsLoading ? 'Creating PR...' : 'Confirm & Create PR'}
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="space-y-4">
+                                <p className="text-sm text-gray-400">Modify the cluster configuration. This will create a pull request in the infrastructure repository.</p>
+                                <div className="form-group">
+                                    <label>Parameter</label>
+                                    <select className="select" value={gitopsField} onChange={e => setGitopsField(e.target.value)}>
+                                        <option value="instances">Replicas (instances)</option>
+                                        <option value="imageName">Postgres Version (imageName)</option>
+                                        <option value="storage.size">Disk Size (storage.size)</option>
+                                    </select>
+                                </div>
+                                <div className="form-group">
+                                    <label>New Value</label>
+                                    <input
+                                        type="text"
+                                        className="input"
+                                        value={gitopsValue}
+                                        onChange={e => setGitopsValue(e.target.value)}
+                                        placeholder="e.g. 5"
+                                    />
+                                </div>
+                                {gitopsError && <div className="alert alert-error text-sm">{gitopsError}</div>}
+                                <div className="flex justify-end gap-3 mt-8">
+                                    <button className="btn btn-outline" onClick={() => setIsGitOpsModalOpen(false)}>Cancel</button>
+                                    <button className="btn btn-primary" onClick={handlePropose} disabled={gitopsLoading || !gitopsValue}>
+                                        {gitopsLoading ? 'Analyzing...' : 'Propose Changes'}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                    <style jsx>{`
+                        .modal-overlay {
+                            position: fixed;
+                            top: 0;
+                            left: 0;
+                            right: 0;
+                            bottom: 0;
+                            background: rgba(0,0,0,0.8);
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            z-index: 1000;
+                            padding: 20px;
+                        }
+                    `}</style>
+                </div>
+            )}
         </div>
     );
 }
 
 /* ---- Sub-tab components ---- */
 
-function OverviewTab({ cluster }: { cluster: RawCluster }) {
+function OverviewTab({ cluster, onEditGitOps }: { cluster: RawCluster, onEditGitOps: () => void }) {
     const spec = cluster.spec ?? {};
     const status = cluster.status ?? {};
     const req = spec.resources?.requests ?? {};
     return (
         <div className="grid grid-2">
             <div className="card">
-                <h2 className="mb-4">Infrastructure</h2>
+                <div className="flex justify-between items-start mb-4">
+                    <h2>Infrastructure</h2>
+                    {cluster.gitops?.status === 'HELM_GITOPS' ? (
+                        <button className="btn btn-primary btn-sm" onClick={onEditGitOps}>Edit via GitOps</button>
+                    ) : (
+                        cluster.gitops?.status === 'NOT_GITOPS' && (
+                            <button className="btn btn-outline btn-sm">Edit Configuration</button>
+                        )
+                    )}
+                </div>
                 <div className="form-group"><label>Image</label><p className="text-sm">{spec.imageName ?? '—'}</p></div>
                 <div className="form-group"><label>CPU (requests)</label><p>{req.cpu ?? '—'}</p></div>
                 <div className="form-group"><label>Memory (requests)</label><p>{req.memory ?? '—'}</p></div>

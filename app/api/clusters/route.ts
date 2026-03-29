@@ -1,14 +1,22 @@
 import { NextResponse } from 'next/server';
 import { isMock, mockClusters, listClusters, createCluster, namespace } from '@/lib/k8s';
+import { discoverGitOpsStatus } from '@/lib/gitops/detector';
 
 export async function GET() {
     if (isMock) {
-        return NextResponse.json(mockClusters);
+        return NextResponse.json(await Promise.all(mockClusters.map(async c => ({
+            ...c,
+            gitops: await discoverGitOpsStatus(c)
+        }))));
     }
     try {
         const items = await listClusters();
-        console.log(`[/api/clusters] Found ${items.length} clusters`);
-        return NextResponse.json(items);
+        const enriched = await Promise.all(items.map(async (c: any) => ({
+            ...c,
+            gitops: await discoverGitOpsStatus(c)
+        })));
+        console.log(`[/api/clusters] Found ${enriched.length} enriched clusters`);
+        return NextResponse.json(enriched);
     } catch (e) {
         console.error('[/api/clusters] GET failed:', e);
         return NextResponse.json({ error: String(e) }, { status: 500 });
