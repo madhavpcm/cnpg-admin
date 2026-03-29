@@ -1,35 +1,38 @@
 # Build stage
-FROM docker.io/library/golang:1.26 AS builder
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy Go modules
-COPY go.mod go.sum ./
-RUN go mod download
+# Copy package files and install dependencies
+COPY package*.json ./
+RUN npm ci --omit=dev
 
-# Build server
-COPY cmd/server ./cmd/server
-COPY internal ./internal
-RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /cnpg-admin ./cmd/server
+# Copy source and build
+COPY . .
+RUN npm run build
 
-# Build WASM
-COPY cmd/wasm ./cmd/wasm  
-COPY internal/ui ./internal/ui
-RUN GOOS=js GOARCH=wasm CGO_ENABLED=0 go build -o /app.wasm ./cmd/wasm
+# Production stage - minimal Node.js image
+FROM node:20-alpine AS runner
 
-# Copy wasm_exec.js from Go installation (in golang image it's at /usr/local/go)
-RUN mkdir -p /web/static/wasm && \
-    cp /usr/local/go/misc/wasm/wasm_exec.js /web/static/wasm/wasm.js
+WORKDIR /app
 
-# Final stage - distroless minimal image
-FROM gcr.io/distroless/static:nonroot
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
 
-# Copy binaries and assets
-COPY --from=builder /cnpg-admin /
-COPY --from=builder /web /web
+# Create non-root user
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nextjs
 
-EXPOSE 8080
+# Copy standalone build output
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 
-USER nonroot:nonroot
+USER nextjs
 
-ENTRYPOINT ["/cnpg-admin"]
+EXPOSE 3000
+
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
+
+CMD ["node", "server.js"]
