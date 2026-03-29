@@ -39,6 +39,8 @@ export default function ClusterDetailPage({
     const [cluster, setCluster] = useState<RawCluster | null>(null);
     const [loading, setLoading] = useState(true);
     const [logs, setLogs] = useState('');
+    const [pods, setPods] = useState<any[]>([]);
+    const [selectedPod, setSelectedPod] = useState<string | null>(null);
     const [users, setUsers] = useState<User[]>([]);
     const [tables, setTables] = useState<string[]>([]);
     const [queryText, setQueryText] = useState('');
@@ -48,19 +50,34 @@ export default function ClusterDetailPage({
         const base = `/api/clusters/${namespace}/${name}`;
         Promise.all([
             fetch(base).then((r) => r.json()),
-            fetch(`${base}/logs`).then((r) => r.text()),
+            fetch(`${base}/pods`).then((r) => r.json()),
             fetch(`${base}/users`).then((r) => r.json()),
             fetch(`${base}/tables`).then((r) => r.json()),
         ])
-            .then(([c, l, u, t]) => {
+            .then(([c, p, u, t]) => {
                 setCluster(c);
-                setLogs(l);
+                setPods(p);
                 setUsers(u);
                 setTables(t);
+                if (p && p.length > 0) {
+                    const firstPod = p[0].metadata?.name;
+                    setSelectedPod(firstPod);
+                    fetchLogs(firstPod);
+                }
             })
             .catch(console.error)
             .finally(() => setLoading(false));
     }, [namespace, name]);
+
+    const fetchLogs = async (pod: string) => {
+        try {
+            const resp = await fetch(`/api/clusters/${namespace}/${name}/logs?pod=${pod}`);
+            const text = await resp.text();
+            setLogs(text);
+        } catch (e) {
+            console.error('Failed to fetch logs:', e);
+        }
+    };
 
     const runQuery = async () => {
         const resp = await fetch(`/api/clusters/${namespace}/${name}/query`, {
@@ -122,7 +139,17 @@ export default function ClusterDetailPage({
                     )}
                     {activeTab === 'Tables' && <TablesTab tables={tables} />}
                     {activeTab === 'Metrics' && <MetricsTab />}
-                    {activeTab === 'Logs' && <LogsTab logs={logs} />}
+                    {activeTab === 'Logs' && (
+                        <LogsTab
+                            logs={logs}
+                            pods={pods}
+                            selectedPod={selectedPod}
+                            onPodChange={(p) => {
+                                setSelectedPod(p);
+                                fetchLogs(p);
+                            }}
+                        />
+                    )}
                 </div>
             </div>
         </div>
@@ -255,10 +282,36 @@ function MetricsTab() {
     );
 }
 
-function LogsTab({ logs }: { logs: string }) {
+function LogsTab({
+    logs,
+    pods,
+    selectedPod,
+    onPodChange
+}: {
+    logs: string;
+    pods: any[];
+    selectedPod: string | null;
+    onPodChange: (pod: string) => void;
+}) {
     return (
         <div className="card">
-            <h2 className="mb-4">Logs</h2>
+            <div className="flex justify-between items-center mb-4">
+                <h2>Logs</h2>
+                <div className="flex items-center gap-2">
+                    <label className="text-sm font-medium">Pod:</label>
+                    <select
+                        className="select select-sm"
+                        value={selectedPod || ''}
+                        onChange={(e) => onPodChange(e.target.value)}
+                    >
+                        {pods.map((p) => (
+                            <option key={p.metadata?.name} value={p.metadata?.name}>
+                                {p.metadata?.name}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+            </div>
             <pre className="query-editor h-96">{logs || 'No logs available.'}</pre>
         </div>
     );
