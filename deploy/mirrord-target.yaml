@@ -1,0 +1,59 @@
+---
+# Dummy target deployment for mirrord.
+# Uses the official node:20-alpine image from Docker Hub (no registry auth needed).
+# Runs a tiny HTTP server on :3000 so mirrord has a live port to steal.
+# mirrord will replace this process's network with your local npm run dev.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cnpg-admin
+  namespace: cnpg-system
+  labels:
+    app: cnpg-admin
+    role: mirrord-target
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cnpg-admin
+  template:
+    metadata:
+      labels:
+        app: cnpg-admin
+        role: mirrord-target
+    spec:
+      serviceAccountName: cnpg-admin   # keeps k8s RBAC; mirrord inherits this
+      containers:
+        - name: cnpg-admin
+          image: node:20-alpine
+          imagePullPolicy: IfNotPresent
+          command:
+            - node
+            - -e
+            - |
+              const http = require('http');
+              http.createServer((req, res) => {
+                res.writeHead(200, {'Content-Type': 'text/plain'});
+                res.end('mirrord target — replace me with: mirrord exec -- npm run dev\n');
+              }).listen(3000, () => console.log('mirrord target ready on :3000'));
+          ports:
+            - containerPort: 3000
+          env:
+            - name: K8S_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "10m"
+            limits:
+              memory: "64Mi"
+              cpu: "100m"
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            failureThreshold: 3

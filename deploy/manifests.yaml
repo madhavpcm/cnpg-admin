@@ -44,8 +44,9 @@ spec:
   selector:
     app: cnpg-admin
   ports:
-    - port: 8080
-      targetPort: 8080
+    - name: http
+      port: 80
+      targetPort: 3000
   type: ClusterIP
 ---
 apiVersion: apps/v1
@@ -53,6 +54,8 @@ kind: Deployment
 metadata:
   name: cnpg-admin
   namespace: cnpg-system
+  annotations:
+    # bumped by CI: kubectl set image deployment/cnpg-admin cnpg-admin=<image>:<sha>
 spec:
   replicas: 1
   selector:
@@ -66,10 +69,17 @@ spec:
       serviceAccountName: cnpg-admin
       containers:
         - name: cnpg-admin
-          image: cnpg-admin:latest
+          image: cnpg-admin:latest  # local: replaced by local-deploy.sh; CI: ghcr.io/OWNER/cnpg-admin:<sha>
           imagePullPolicy: IfNotPresent
           ports:
-            - containerPort: 8080
+            - containerPort: 3000
+          env:
+            - name: K8S_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: NODE_ENV
+              value: "production"
           resources:
             requests:
               memory: "128Mi"
@@ -80,12 +90,12 @@ spec:
           livenessProbe:
             httpGet:
               path: /api/health
-              port: 8080
+              port: 3000
             initialDelaySeconds: 10
             periodSeconds: 30
           readinessProbe:
             httpGet:
               path: /api/health
-              port: 8080
+              port: 3000
             initialDelaySeconds: 5
             periodSeconds: 10

@@ -1,0 +1,10 @@
+{
+    "target": "deployment/cnpg-admin",
+    "feature": {
+        "network": {
+            "incoming": "steal",
+            "outgoing": true
+        },
+        "fs": "read"
+    }
+}

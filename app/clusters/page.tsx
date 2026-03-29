@@ -46,7 +46,10 @@ export default function ClustersPage() {
                 if (!r.ok) throw new Error(`HTTP ${r.status}`);
                 return r.json();
             })
-            .then((data: RawCluster[]) => setClusters(data.map(parseCluster)))
+            .then((data) => {
+                const items = Array.isArray(data) ? data : [];
+                setClusters(items.map(parseCluster));
+            })
             .catch((e) => setError(String(e)))
             .finally(() => setLoading(false));
     }, []);

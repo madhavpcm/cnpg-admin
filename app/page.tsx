@@ -21,8 +21,12 @@ export default function DashboardPage() {
 
     useEffect(() => {
         fetch('/api/clusters')
-            .then((r) => r.json())
-            .then((clusters: RawCluster[]) => {
+            .then((r) => {
+                if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                return r.json();
+            })
+            .then((data) => {
+                const clusters = Array.isArray(data) ? data : [];
                 let healthy = 0;
                 let instances = 0;
                 for (const c of clusters) {

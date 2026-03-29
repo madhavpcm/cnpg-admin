@@ -15,6 +15,7 @@ export async function POST(req: Request, { params }: Params) {
         await patchCluster(namespace, name, { spec: { instances } });
         return NextResponse.json({ ok: true });
     } catch (e) {
+        console.error(`[/api/clusters/${namespace}/${name}/scale] POST failed:`, e);
         return NextResponse.json({ error: String(e) }, { status: 500 });
     }
 }

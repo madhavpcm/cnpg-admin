@@ -20,8 +20,76 @@ let _coreApi: k8s.CoreV1Api | null = null;
 
 function getKubeConfig(): k8s.KubeConfig {
     if (!_kc) {
-        _kc = new k8s.KubeConfig();
-        _kc.loadFromDefault(); // in-cluster or ~/.kube/config
+        // Log environment for mirrord debugging
+        Object.keys(process.env)
+            .filter((k) => k.startsWith('KUBERNETES_') || k.startsWith('MIRRORD_'))
+            .forEach((k) => console.log(`[env] ${k}=${k.includes('TOKEN') ? '***' : process.env[k]}`));
+
+        const kc = new k8s.KubeConfig();
+        kc.loadFromDefault();
+        const cluster = kc.getCurrentCluster();
+
+        if (cluster) {
+            console.log(`[k8s] Detected Cluster Server from KubeConfig: ${cluster.server}`);
+
+            let serverUrl = process.env.K8S_SERVER;
+            if (!serverUrl && process.env.KUBERNETES_SERVICE_HOST && process.env.KUBERNETES_SERVICE_PORT) {
+                serverUrl = `https://${process.env.KUBERNETES_SERVICE_HOST}:${process.env.KUBERNETES_SERVICE_PORT}`;
+            }
+            if (!serverUrl) serverUrl = cluster.server;
+
+            // Normalize protocol
+            if (serverUrl.startsWith('http:')) {
+                serverUrl = serverUrl.replace('http:', 'https:');
+            } else if (!serverUrl.startsWith('https:')) {
+                serverUrl = `https://${serverUrl}`;
+            }
+
+            // Manually check for in-cluster token if mirrord is active
+            const tokenPath = '/var/run/secrets/kubernetes.io/serviceaccount/token';
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const fs = require('fs');
+            let token: string | undefined;
+
+            try {
+                if (fs.existsSync(tokenPath)) {
+                    token = fs.readFileSync(tokenPath, 'utf8').trim();
+                    console.log(`[k8s] Successfully read token from ${tokenPath}`);
+                }
+            } catch (err) {
+                console.warn(`[k8s] Failed to read token from ${tokenPath}:`, err);
+            }
+
+            // Find current cluster/user indices to update
+            const clusterIdx = kc.clusters.findIndex((c) => c.name === cluster.name);
+            const currentUser = kc.getCurrentUser();
+
+            if (clusterIdx !== -1) {
+                kc.clusters[clusterIdx] = {
+                    ...kc.clusters[clusterIdx],
+                    server: serverUrl,
+                    skipTLSVerify: true,
+                };
+            }
+
+            if (token) {
+                if (currentUser) {
+                    const userIdx = kc.users.findIndex((u) => u.name === currentUser.name);
+                    if (userIdx !== -1) {
+                        kc.users[userIdx] = { ...kc.users[userIdx], token };
+                    }
+                } else {
+                    const userName = 'mirrord-user';
+                    kc.users.push({ name: userName, token });
+                    const ctxIdx = kc.contexts.findIndex((c) => c.name === kc.currentContext);
+                    if (ctxIdx !== -1) {
+                        kc.contexts[ctxIdx] = { ...kc.contexts[ctxIdx], user: userName };
+                    }
+                }
+            }
+            console.log(`[k8s] Active API Server: ${kc.getCurrentCluster()?.server} (Token present: ${!!token})`);
+        }
+        _kc = kc;
     }
     return _kc;
 }
@@ -109,12 +177,11 @@ export const mockQueryResults = [
 
 // ---- Real k8s helpers ----
 
-export async function listClusters(ns: string) {
+export async function listClusters() {
     const api = getCustomApi();
-    const res = await api.listNamespacedCustomObject({
+    const res = await api.listCustomObjectForAllNamespaces({
         group: CLUSTERS_GROUP,
         version: CLUSTERS_VERSION,
-        namespace: ns,
         plural: CLUSTERS_PLURAL,
     });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -172,8 +239,9 @@ export async function getPodLogs(ns: string, clusterName: string): Promise<strin
         namespace: ns,
         labelSelector: `cnpg.io/cluster=${clusterName}`,
     });
-    if (!pods.items?.length) throw new Error('No pods found for cluster');
-    const podName = pods.items[0].metadata!.name!;
+    const items = (pods as any).items ?? [];
+    if (!items.length) throw new Error('No pods found for cluster');
+    const podName = items[0].metadata!.name!;
     const logs = await coreApi.readNamespacedPodLog({
         name: podName,
         namespace: ns,

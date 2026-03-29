@@ -22,6 +22,7 @@ export async function GET(_req: Request, { params }: Params) {
         const data = await getCluster(namespace, name);
         return NextResponse.json(data);
     } catch (e) {
+        console.error(`[/api/clusters/${namespace}/${name}] GET failed:`, e);
         return NextResponse.json({ error: String(e) }, { status: 404 });
     }
 }
