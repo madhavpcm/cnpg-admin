@@ -3,8 +3,9 @@
 import { useEffect, useState, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loading } from '@/components/Loading';
+import yaml from 'js-yaml';
 
-type Tab = 'Overview' | 'Users' | 'Query' | 'Tables' | 'Metrics' | 'Logs';
+type Tab = 'Overview' | 'Users' | 'Query' | 'Tables' | 'Metrics' | 'Logs' | 'YAML';
 
 interface RawCluster {
     metadata?: { name?: string; namespace?: string };
@@ -27,6 +28,7 @@ const TABS: { name: Tab; iconPath: string }[] = [
     { name: 'Tables', iconPath: 'M3 3h18v18H3z M3 9h18 M3 15h18 M9 3v18 M15 3v18' },
     { name: 'Metrics', iconPath: 'M18 20V10 M12 20V4 M6 20v-6' },
     { name: 'Logs', iconPath: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6' },
+    { name: 'YAML', iconPath: 'M4 19.5A2.5 2.5 0 0 1 6.5 17H20 M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z' },
 ];
 
 export default function ClusterDetailPage({
@@ -59,10 +61,10 @@ export default function ClusterDetailPage({
         ])
             .then(([c, p, u, t]) => {
                 setCluster(c);
-                setPods(p);
-                setUsers(u);
-                setTables(t);
-                if (p && p.length > 0) {
+                setPods(Array.isArray(p) ? p : []);
+                setUsers(Array.isArray(u) ? u : []);
+                setTables(t); // Keep the raw response for TablesTab to check for errors
+                if (Array.isArray(p) && p.length > 0) {
                     const firstPod = p[0].metadata?.name;
                     setSelectedPod(firstPod);
                     fetchLogs(firstPod);
@@ -175,6 +177,7 @@ export default function ClusterDetailPage({
                     )}
                     {activeTab === 'Tables' && <TablesTab tables={tables} />}
                     {activeTab === 'Metrics' && <MetricsTab />}
+                    {activeTab === 'YAML' && <YamlTab cluster={cluster} />}
                     {activeTab === 'Logs' && (
                         <LogsTab
                             logs={logs}
@@ -362,18 +365,31 @@ function QueryTab({
     );
 }
 
-function TablesTab({ tables }: { tables: string[] }) {
+function TablesTab({ tables }: { tables: any }) {
+    const isArray = Array.isArray(tables);
+    const error = (!isArray && tables && tables.error) ? tables.error : null;
+
     return (
         <div className="card">
             <h2 className="mb-4">Tables</h2>
-            <ul className="list-none p-0">
-                {tables.map((t) => (
-                    <li key={t} className="p-3 border-b border-gray-100 flex justify-between items-center">
-                        <span className="font-semibold">{t}</span>
-                        <button className="btn btn-outline btn-sm">Preview</button>
-                    </li>
-                ))}
-            </ul>
+            {error ? (
+                <div className="alert alert-error">
+                    Failed to fetch tables: {error}
+                </div>
+            ) : (!isArray || tables.length === 0) ? (
+                <div className="py-12 text-center">
+                    <p className="text-gray-400 italic">No tables found in public schema.</p>
+                </div>
+            ) : (
+                <ul className="list-none p-0">
+                    {tables.map((t: string) => (
+                        <li key={t} className="p-3 border-b border-gray-100 flex justify-between items-center">
+                            <span className="font-semibold">{t}</span>
+                            <button className="btn btn-outline btn-sm">Preview</button>
+                        </li>
+                    ))}
+                </ul>
+            )}
         </div>
     );
 }
@@ -426,6 +442,18 @@ function LogsTab({
                 </div>
             </div>
             <pre className="query-editor h-96">{logs || 'No logs available.'}</pre>
+        </div>
+    );
+}
+
+function YamlTab({ cluster }: { cluster: RawCluster }) {
+    const yamlContent = yaml.dump(cluster);
+    return (
+        <div className="card">
+            <h2 className="mb-4">Cluster YAML</h2>
+            <pre className="query-editor h-[600px] overflow-auto text-xs leading-relaxed">
+                {yamlContent}
+            </pre>
         </div>
     );
 }

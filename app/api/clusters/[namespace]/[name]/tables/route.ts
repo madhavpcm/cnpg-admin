@@ -33,6 +33,7 @@ export async function GET(_req: Request, { params }: Params) {
         await client.end();
 
         const tables = res.rows.map(row => row.table_name);
+        console.log(`[/api/clusters/${namespace}/${name}/tables] Found ${tables.length} tables in public schema`);
         return NextResponse.json(tables);
     } catch (e) {
         console.error(`[/api/clusters/${namespace}/${name}/tables] GET failed:`, e);
