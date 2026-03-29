@@ -1,16 +1,31 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 export default function NewClusterPage() {
     const router = useRouter();
     const [name, setName] = useState('');
+    const [selectedNamespace, setSelectedNamespace] = useState('default');
+    const [namespaces, setNamespaces] = useState<string[]>([]);
     const [pgVersion, setPgVersion] = useState('16');
     const [instances, setInstances] = useState(3);
     const [storage, setStorage] = useState('10Gi');
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState('');
+
+    useEffect(() => {
+        fetch('/api/namespaces')
+            .then(r => r.json())
+            .then(data => {
+                if (Array.isArray(data)) {
+                    setNamespaces(data);
+                    if (data.includes('default')) setSelectedNamespace('default');
+                    else if (data.length > 0) setSelectedNamespace(data[0]);
+                }
+            })
+            .catch(console.error);
+    }, []);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -22,6 +37,7 @@ export default function NewClusterPage() {
             apiVersion: 'postgresql.cnpg.io/v1',
             kind: 'Cluster',
             metadata: { name },
+            namespace: selectedNamespace, // Send namespace in body
             spec: {
                 instances,
                 storage: { size: storage },
@@ -51,16 +67,29 @@ export default function NewClusterPage() {
 
             <div className="card" style={{ maxWidth: 680 }}>
                 <form onSubmit={handleSubmit}>
-                    <div className="form-group">
-                        <label htmlFor="cluster-name">Cluster Name</label>
-                        <input
-                            id="cluster-name"
-                            type="text"
-                            placeholder="e.g. prod-db"
-                            value={name}
-                            onChange={(e) => setName(e.target.value)}
-                            required
-                        />
+                    <div className="grid grid-2">
+                        <div className="form-group">
+                            <label htmlFor="cluster-name">Cluster Name</label>
+                            <input
+                                id="cluster-name"
+                                type="text"
+                                placeholder="e.g. prod-db"
+                                value={name}
+                                onChange={(e) => setName(e.target.value)}
+                                required
+                            />
+                        </div>
+                        <div className="form-group">
+                            <label htmlFor="namespace">Namespace</label>
+                            <select
+                                id="namespace"
+                                value={selectedNamespace}
+                                onChange={(e) => setSelectedNamespace(e.target.value)}
+                            >
+                                {namespaces.map(ns => <option key={ns} value={ns}>{ns}</option>)}
+                                {namespaces.length === 0 && <option>Loading...</option>}
+                            </select>
+                        </div>
                     </div>
 
                     <div className="grid grid-2">

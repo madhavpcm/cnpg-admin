@@ -1,92 +1,35 @@
-/**
- * Kubernetes client for Next.js API routes.
- */
-
 import * as k8s from '@kubernetes/client-node';
-
-export const isMock = process.env.MOCK === 'true';
-export const namespace = process.env.K8S_NAMESPACE ?? 'cnpg-system';
 
 const CLUSTERS_GROUP = 'postgresql.cnpg.io';
 const CLUSTERS_VERSION = 'v1';
 const CLUSTERS_PLURAL = 'clusters';
 
+export const isMock = process.env.MOCK_K8S === 'true';
+export const namespace = process.env.K8S_NAMESPACE ?? 'cnpg-system';
+
 let _kc: k8s.KubeConfig | null = null;
-let _customApi: k8s.CustomObjectsApi | null = null;
-let _coreApi: k8s.CoreV1Api | null = null;
-
-function getKubeConfig(): k8s.KubeConfig {
+function getKubeConfig() {
     if (!_kc) {
-        const kc = new k8s.KubeConfig();
-        kc.loadFromDefault();
-        const cluster = kc.getCurrentCluster();
-
-        if (cluster) {
-            let serverUrl = process.env.K8S_SERVER;
-            if (!serverUrl && process.env.KUBERNETES_SERVICE_HOST && process.env.KUBERNETES_SERVICE_PORT) {
-                serverUrl = `https://${process.env.KUBERNETES_SERVICE_HOST}:${process.env.KUBERNETES_SERVICE_PORT}`;
-            }
-            if (!serverUrl) serverUrl = cluster.server;
-
-            if (serverUrl.startsWith('http:')) {
-                serverUrl = serverUrl.replace('http:', 'https:');
-            } else if (!serverUrl.startsWith('https:')) {
-                serverUrl = `https://${serverUrl}`;
-            }
-
-            const tokenPath = '/var/run/secrets/kubernetes.io/serviceaccount/token';
-            // eslint-disable-next-line @typescript-eslint/no-require-imports
-            const fs = require('fs');
-            let token: string | undefined;
-
-            try {
-                if (fs.existsSync(tokenPath)) {
-                    token = fs.readFileSync(tokenPath, 'utf8').trim();
-                }
-            } catch (err) {
-                console.warn(`[k8s] Failed to read token from ${tokenPath}:`, err);
-            }
-
-            const clusterIdx = kc.clusters.findIndex((c) => c.name === cluster.name);
-            const currentUser = kc.getCurrentUser();
-
-            if (clusterIdx !== -1) {
-                kc.clusters[clusterIdx] = {
-                    ...kc.clusters[clusterIdx],
-                    server: serverUrl,
-                    skipTLSVerify: true,
-                };
-            }
-
-            if (token) {
-                if (currentUser) {
-                    const userIdx = kc.users.findIndex((u) => u.name === currentUser.name);
-                    if (userIdx !== -1) {
-                        kc.users[userIdx] = { ...kc.users[userIdx], token };
-                    }
-                } else {
-                    const userName = 'mirrord-user';
-                    kc.users.push({ name: userName, token });
-                    const ctxIdx = kc.contexts.findIndex((c) => c.name === kc.currentContext);
-                    if (ctxIdx !== -1) {
-                        kc.contexts[ctxIdx] = { ...kc.contexts[ctxIdx], user: userName };
-                    }
-                }
-            }
+        _kc = new k8s.KubeConfig();
+        if (process.env.KUBECONFIG) {
+            _kc.loadFromFile(process.env.KUBECONFIG);
+        } else {
+            _kc.loadFromDefault();
         }
-        _kc = kc;
     }
     return _kc;
 }
 
-export function getCustomApi(): k8s.CustomObjectsApi {
+let _customApi: k8s.CustomObjectsApi | null = null;
+function getCustomApi() {
     if (!_customApi) {
         _customApi = getKubeConfig().makeApiClient(k8s.CustomObjectsApi);
     }
     return _customApi;
 }
 
-export function getCoreApi(): k8s.CoreV1Api {
+let _coreApi: k8s.CoreV1Api | null = null;
+export function getCoreApi() {
     if (!_coreApi) {
         _coreApi = getKubeConfig().makeApiClient(k8s.CoreV1Api);
     }
@@ -112,9 +55,52 @@ export async function getCluster(ns: string, name: string) {
         version: CLUSTERS_VERSION,
         namespace: ns,
         plural: CLUSTERS_PLURAL,
-        name,
+        name: name,
     });
     return (res as any);
+}
+
+export async function patchCluster(ns: string, name: string, patch: object) {
+    const api = getCustomApi();
+    // @ts-ignore - headers in ConfigurationOptions not fully typed in this version
+    return api.patchNamespacedCustomObject({
+        group: CLUSTERS_GROUP,
+        version: CLUSTERS_VERSION,
+        namespace: ns,
+        plural: CLUSTERS_PLURAL,
+        name: name,
+        body: patch,
+    }, {
+        headers: { 'Content-Type': 'application/merge-patch+json' }
+    });
+}
+
+export async function updateClusterUser(ns: string, name: string, username: string, updates: Partial<{ login: boolean, superuser: boolean }>) {
+    const cluster = await getCluster(ns, name);
+    const roles = cluster.spec?.managed?.roles || [];
+    const index = roles.findIndex((r: any) => r.name === username);
+    if (index === -1) throw new Error(`User ${username} not found in managed roles`);
+
+    const updatedRoles = [...roles];
+    updatedRoles[index] = { ...updatedRoles[index], ...updates };
+
+    const patch = {
+        spec: {
+            managed: {
+                roles: updatedRoles
+            }
+        }
+    };
+    return patchCluster(ns, name, patch);
+}
+
+export function extractClusterUsers(cluster: any) {
+    const roles = cluster.spec?.managed?.roles ?? [];
+    return roles.map((r: any) => ({
+        username: r.name,
+        role: r.superuser ? 'superuser' : (r.login ? 'login' : 'nologin'),
+        created_at: cluster.metadata?.creationTimestamp ?? 'Unknown',
+    }));
 }
 
 export async function createCluster(ns: string, body: object) {
@@ -124,7 +110,7 @@ export async function createCluster(ns: string, body: object) {
         version: CLUSTERS_VERSION,
         namespace: ns,
         plural: CLUSTERS_PLURAL,
-        body,
+        body: body,
     });
 }
 
@@ -135,20 +121,14 @@ export async function deleteCluster(ns: string, name: string) {
         version: CLUSTERS_VERSION,
         namespace: ns,
         plural: CLUSTERS_PLURAL,
-        name,
+        name: name,
     });
 }
 
-export async function patchCluster(ns: string, name: string, patch: object) {
-    const api = getCustomApi();
-    return api.patchNamespacedCustomObject({
-        group: CLUSTERS_GROUP,
-        version: CLUSTERS_VERSION,
-        namespace: ns,
-        plural: CLUSTERS_PLURAL,
-        name,
-        body: patch,
-    });
+export async function listNamespaces() {
+    const coreApi = getCoreApi();
+    const res = await coreApi.listNamespace();
+    return (res as any).items ?? [];
 }
 
 export async function listPods(ns: string, clusterName: string) {
@@ -173,7 +153,6 @@ export async function getPodLogs(ns: string, podName: string): Promise<string> {
 
 export async function getClusterCredentials(ns: string, clusterName: string) {
     const coreApi = getCoreApi();
-    // Try superuser secret first for admin access
     const secretNames = [`${clusterName}-superuser`, `${clusterName}-app`];
 
     for (const secretName of secretNames) {
@@ -185,7 +164,7 @@ export async function getClusterCredentials(ns: string, clusterName: string) {
             const data = (res as any).data || {};
             const decode = (b64: string) => Buffer.from(b64, 'base64').toString('utf8');
             let dbname = decode(data.dbname || 'app');
-            if (dbname === '*') dbname = 'app'; // '*' means all DBs in CNPG superuser secret, but we must pick one to connect
+            if (dbname === '*') dbname = 'app';
 
             return {
                 username: decode(data.username || data.user || 'postgres'),
@@ -198,7 +177,6 @@ export async function getClusterCredentials(ns: string, clusterName: string) {
         }
     }
 
-    // Fallback to defaults
     return {
         username: 'app',
         password: '',
@@ -219,3 +197,7 @@ export const mockClusters = [
 export const mockUsers = [{ username: 'admin', role: 'superuser', created_at: '2024-03-20' }];
 export const mockLogs = "2024-03-29 01:50:14 INFO Initializing database...";
 export const mockTables = ['users', 'products', 'orders'];
+export const mockQueryResults = [
+    { id: 1, name: 'admin', role: 'superuser' },
+    { id: 2, name: 'app_user', role: 'readwrite' },
+];

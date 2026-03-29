@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { Loading } from '@/components/Loading';
 
 interface RawCluster {
     metadata: { name: string; namespace: string };
@@ -36,7 +37,10 @@ export default function DashboardPage() {
                 setStats({ total: clusters.length, healthy, instances });
             })
             .catch(console.error)
-            .finally(() => setLoading(false));
+            .finally(() => {
+                // Add a small delay for premium feel and to ensure animation is visible
+                setTimeout(() => setLoading(false), 400);
+            });
     }, []);
 
     return (
@@ -56,7 +60,7 @@ export default function DashboardPage() {
             </div>
 
             {loading ? (
-                <p className="loading-text">Loading cluster data…</p>
+                <Loading message="Fetching Cluster.." />
             ) : (
                 <div className="grid grid-3">
                     <StatCard

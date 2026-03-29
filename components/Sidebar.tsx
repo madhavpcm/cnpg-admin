@@ -39,7 +39,17 @@ export function Sidebar() {
 
     return (
         <aside className="nav-sidebar">
-            <h2>CNPG Admin</h2>
+            <div className="mb-12 px-4 py-2">
+                <Link href="/" className="block no-underline group w-fit">
+                    <img
+                        src="/logo.png"
+                        alt="CNPG Admin Logo"
+                        width="110"
+                        className="transition-all duration-300 group-hover:scale-105 group-hover:drop-shadow-lg"
+                        style={{ height: 'auto', display: 'block' }}
+                    />
+                </Link>
+            </div>
             <nav>
                 <ul className="list-none p-0">
                     {navItems.map((item) => {

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, use } from 'react';
 import { useRouter } from 'next/navigation';
+import { Loading } from '@/components/Loading';
 
 type Tab = 'Overview' | 'Users' | 'Query' | 'Tables' | 'Metrics' | 'Logs';
 
@@ -45,6 +46,8 @@ export default function ClusterDetailPage({
     const [tables, setTables] = useState<string[]>([]);
     const [queryText, setQueryText] = useState('');
     const [queryResults, setQueryResults] = useState<QueryRow[]>([]);
+    const [queryError, setQueryError] = useState<string | null>(null);
+    const [queryLoading, setQueryLoading] = useState(false);
 
     useEffect(() => {
         const base = `/api/clusters/${namespace}/${name}`;
@@ -66,7 +69,9 @@ export default function ClusterDetailPage({
                 }
             })
             .catch(console.error)
-            .finally(() => setLoading(false));
+            .finally(() => {
+                setTimeout(() => setLoading(false), 400);
+            });
     }, [namespace, name]);
 
     const fetchLogs = async (pod: string) => {
@@ -80,16 +85,34 @@ export default function ClusterDetailPage({
     };
 
     const runQuery = async () => {
-        const resp = await fetch(`/api/clusters/${namespace}/${name}/query`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query: queryText }),
-        });
-        const results = await resp.json();
-        setQueryResults(results);
+        if (!queryText.trim()) {
+            setQueryError('Please enter a query.');
+            return;
+        }
+        setQueryLoading(true);
+        setQueryError(null);
+        try {
+            const resp = await fetch(`/api/clusters/${namespace}/${name}/query`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query: queryText }),
+            });
+            const results = await resp.json();
+            if (!resp.ok) {
+                setQueryError(results.error || 'Query failed');
+                setQueryResults([]);
+            } else {
+                setQueryResults(results);
+                setQueryError(null);
+            }
+        } catch (e) {
+            setQueryError(String(e));
+        } finally {
+            setQueryLoading(false);
+        }
     };
 
-    if (loading) return <div className="page"><p className="loading-text">Loading cluster…</p></div>;
+    if (loading) return <div className="page"><Loading message={`Loading cluster ${name}..`} /></div>;
     if (!cluster) return <div className="page"><p className="alert alert-error">Cluster not found.</p></div>;
 
     return (
@@ -128,12 +151,25 @@ export default function ClusterDetailPage({
                 {/* Content */}
                 <div className="flex-1">
                     {activeTab === 'Overview' && <OverviewTab cluster={cluster} />}
-                    {activeTab === 'Users' && <UsersTab users={users} />}
+                    {activeTab === 'Users' && (
+                        <UsersTab
+                            namespace={namespace}
+                            name={name}
+                            users={users}
+                            onRefresh={() => {
+                                fetch(`/api/clusters/${namespace}/${name}/users`)
+                                    .then(r => r.json())
+                                    .then(setUsers);
+                            }}
+                        />
+                    )}
                     {activeTab === 'Query' && (
                         <QueryTab
                             queryText={queryText}
                             setQueryText={setQueryText}
                             queryResults={queryResults}
+                            queryError={queryError}
+                            queryLoading={queryLoading}
                             onRun={runQuery}
                         />
                     )}
@@ -188,7 +224,36 @@ function OverviewTab({ cluster }: { cluster: RawCluster }) {
     );
 }
 
-function UsersTab({ users }: { users: User[] }) {
+function UsersTab({ namespace, name, users, onRefresh }: { namespace: string, name: string, users: User[], onRefresh: () => void }) {
+    const [editingUsername, setEditingUsername] = useState<string | null>(null);
+    const [editLogin, setEditLogin] = useState(false);
+    const [editSuperuser, setEditSuperuser] = useState(false);
+    const [saving, setSaving] = useState(false);
+
+    const startEdit = (u: User) => {
+        setEditingUsername(u.username);
+        setEditLogin(u.role !== 'nologin');
+        setEditSuperuser(u.role === 'superuser');
+    };
+
+    const handleSave = async (username: string) => {
+        setSaving(true);
+        try {
+            const resp = await fetch(`/api/clusters/${namespace}/${name}/users/${username}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ login: editLogin, superuser: editSuperuser }),
+            });
+            if (!resp.ok) throw new Error('Update failed');
+            setEditingUsername(null);
+            onRefresh();
+        } catch (e) {
+            alert(String(e));
+        } finally {
+            setSaving(false);
+        }
+    };
+
     return (
         <div className="card">
             <div className="flex justify-between items-center mb-6">
@@ -196,13 +261,49 @@ function UsersTab({ users }: { users: User[] }) {
                 <button className="btn btn-primary">Add User</button>
             </div>
             <table>
-                <thead><tr><th>Username</th><th>Role</th><th>Created</th></tr></thead>
+                <thead>
+                    <tr>
+                        <th>Username</th>
+                        <th>Role</th>
+                        <th>Permissions</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
                 <tbody>
                     {users.map((u) => (
                         <tr key={u.username}>
                             <td className="font-semibold">{u.username}</td>
-                            <td><span className="badge badge-info">{u.role}</span></td>
+                            <td>
+                                {editingUsername === u.username ? (
+                                    <div className="flex gap-4">
+                                        <label className="flex items-center gap-2 text-sm">
+                                            <input type="checkbox" checked={editLogin} onChange={e => setEditLogin(e.target.checked)} /> Login
+                                        </label>
+                                        <label className="flex items-center gap-2 text-sm">
+                                            <input type="checkbox" checked={editSuperuser} onChange={e => setEditSuperuser(e.target.checked)} /> Superuser
+                                        </label>
+                                    </div>
+                                ) : (
+                                    <span className={`badge ${u.role === 'superuser' ? 'badge-success' : 'badge-info'}`}>{u.role}</span>
+                                )}
+                            </td>
+                            <td className="text-gray-400 text-xs">
+                                {u.role === 'superuser' ? 'All Privileges' : (u.role === 'login' ? 'Standard Access' : 'No Login')}
+                            </td>
                             <td className="text-gray-500 text-sm">{u.created_at}</td>
+                            <td>
+                                {editingUsername === u.username ? (
+                                    <div className="flex gap-2">
+                                        <button className="btn btn-primary btn-sm" onClick={() => handleSave(u.username)} disabled={saving}>
+                                            {saving ? '...' : 'Save'}
+                                        </button>
+                                        <button className="btn btn-outline btn-sm" onClick={() => setEditingUsername(null)}>Cancel</button>
+                                    </div>
+                                ) : (
+                                    <button className="btn btn-outline btn-sm" onClick={() => startEdit(u)}>Edit</button>
+                                )}
+                            </td>
                         </tr>
                     ))}
                 </tbody>
@@ -212,11 +313,13 @@ function UsersTab({ users }: { users: User[] }) {
 }
 
 function QueryTab({
-    queryText, setQueryText, queryResults, onRun,
+    queryText, setQueryText, queryResults, queryError, queryLoading, onRun,
 }: {
     queryText: string;
     setQueryText: (v: string) => void;
     queryResults: QueryRow[];
+    queryError: string | null;
+    queryLoading: boolean;
     onRun: () => void;
 }) {
     const cols = queryResults.length > 0 ? Object.keys(queryResults[0]) : [];
@@ -228,8 +331,18 @@ function QueryTab({
                 placeholder="SELECT * FROM users;"
                 value={queryText}
                 onChange={(e) => setQueryText(e.target.value)}
+                disabled={queryLoading}
             />
-            <button className="btn btn-primary mt-4" onClick={onRun}>Run Query</button>
+
+            {queryError && <div className="alert alert-error mt-4">{queryError}</div>}
+
+            <button
+                className={`btn btn-primary mt-4${queryLoading ? ' loading' : ''}`}
+                onClick={onRun}
+                disabled={queryLoading}
+            >
+                {queryLoading ? 'Running...' : 'Run Query'}
+            </button>
             {queryResults.length > 0 && (
                 <div className="mt-8 overflow-auto">
                     <h3 className="mb-4">Results ({queryResults.length} rows)</h3>

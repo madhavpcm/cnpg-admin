@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { isMock, mockUsers } from '@/lib/k8s';
+import { isMock, mockUsers, getCluster, extractClusterUsers } from '@/lib/k8s';
 
 interface Params {
     params: Promise<{ namespace: string; name: string }>;
@@ -11,8 +11,9 @@ export async function GET(_req: Request, { params }: Params) {
         return NextResponse.json(mockUsers);
     }
     try {
-        // Real implementation: query k8s secrets for CNPG-managed users
-        return NextResponse.json([]);
+        const cluster = await getCluster(namespace, name);
+        const users = extractClusterUsers(cluster);
+        return NextResponse.json(users);
     } catch (e) {
         console.error(`[/api/clusters/${namespace}/${name}/users] GET failed:`, e);
         return NextResponse.json({ error: String(e) }, { status: 500 });

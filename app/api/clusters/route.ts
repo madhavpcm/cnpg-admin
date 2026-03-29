@@ -21,7 +21,9 @@ export async function POST(req: Request) {
     }
     try {
         const body = await req.json();
-        await createCluster(namespace, body);
+        const targetNamespace = body.namespace || namespace;
+        console.log(`[/api/clusters] Creating cluster ${body.metadata?.name} in namespace ${targetNamespace}`);
+        await createCluster(targetNamespace, body);
         return NextResponse.json({}, { status: 201 });
     } catch (e) {
         console.error('[/api/clusters] POST failed:', e);
