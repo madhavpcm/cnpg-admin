@@ -1,0 +1,25 @@
+# Team A - Production Environment Overrides
+# Extends base team-a values
+cluster:
+  name: team-a-cnpg-prod
+  namespace: team-a-production
+  instances: 5
+  storage:
+    size: 50Gi
+    storageClass: premium-storage
+  resources:
+    limits:
+      cpu: "4"
+      memory: 8Gi
+    requests:
+      cpu: "2"
+      memory: 4Gi
+  backup:
+    enabled: true
+    retention: 30d
+  monitoring:
+    enabled: true
+    prometheusRuleEnabled: true
+  affinity:
+    topologyKey: topology.kubernetes.io/zone
+    podAntiAffinity: required

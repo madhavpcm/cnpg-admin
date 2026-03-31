@@ -1,0 +1,17 @@
+# Team A - Staging Environment Overrides
+# Extends base team-a values
+cluster:
+  name: team-a-cnpg-staging
+  namespace: team-a-staging
+  instances: 2
+  storage:
+    size: 5Gi
+  resources:
+    limits:
+      cpu: "1"
+      memory: 1Gi
+    requests:
+      cpu: "500m"
+      memory: 512Mi
+  backup:
+    enabled: false

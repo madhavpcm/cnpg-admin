@@ -1,0 +1,10 @@
+apiVersion: v2
+name: cnpg-cluster-team-a
+description: CNPG Cluster Chart for Team A - uses base chart hierarchy
+type: application
+version: 1.0.0
+appVersion: "1.16.0"
+dependencies:
+  - name: base
+    version: "1.0.0"
+    repository: "file://charts/base"

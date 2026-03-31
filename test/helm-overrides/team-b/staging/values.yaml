@@ -1,0 +1,16 @@
+# Team B - Staging Environment Overrides
+# Extends base team-b values
+cnpg:
+  cluster:
+    name: team-b-cnpg-staging
+    namespace: team-b-staging
+    replicaCount: 2
+    volume:
+      capacity: 5Gi
+    compute:
+      maxCpu: "1"
+      maxMemory: 1Gi
+      minCpu: "500m"
+      minMemory: 512Mi
+    archive:
+      enabled: false

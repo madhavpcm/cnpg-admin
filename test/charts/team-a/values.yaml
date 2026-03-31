@@ -1,0 +1,28 @@
+cluster:
+  name: team-a-cnpg
+  namespace: team-a
+  postgresql:
+    version: "16"
+    image: ghcr.io/cloudnative-pg/postgresql:16
+  instances: 3
+  storage:
+    size: 10Gi
+    storageClass: standard
+  resources:
+    limits:
+      cpu: "2"
+      memory: 2Gi
+    requests:
+      cpu: "1"
+      memory: 1Gi
+  backup:
+    enabled: true
+    retention: 7d
+  monitoring:
+    enabled: true
+  affinity:
+    topologyKey: kubernetes.io/hostname
+    podAntiAffinity: preferred
+  serviceAccount:
+    create: true
+    name: ""

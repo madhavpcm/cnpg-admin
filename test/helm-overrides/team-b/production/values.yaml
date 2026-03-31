@@ -1,0 +1,29 @@
+# Team B - Production Environment Overrides
+# Extends base team-b values
+cnpg:
+  cluster:
+    name: team-b-cnpg-prod
+    namespace: team-b-production
+    replicaCount: 5
+    volume:
+      capacity: 50Gi
+      class: premium-rwo
+    compute:
+      maxCpu: "4"
+      maxMemory: 8Gi
+      minCpu: "2"
+      minMemory: 4Gi
+    archive:
+      enabled: true
+      retentionDays: 30
+    observability:
+      metricsEnabled: true
+      logsEnabled: true
+    scheduling:
+      nodeSelector:
+        workload: production
+      tolerations:
+        - key: "dedicated"
+          operator: "Equal"
+          value: "cnpg"
+          effect: "NoSchedule"

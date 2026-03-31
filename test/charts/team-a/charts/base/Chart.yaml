@@ -1,0 +1,6 @@
+apiVersion: v2
+name: base
+description: Base CNPG cluster configuration
+type: application
+version: 1.0.0
+appVersion: "1.16.0"

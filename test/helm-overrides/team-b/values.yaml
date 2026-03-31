@@ -1,0 +1,30 @@
+# Base defaults for Team B
+# Uses cnpg.cluster.* hierarchy (different from team-a)
+cnpg:
+  cluster:
+    name: team-b-cnpg
+    namespace: team-b
+    postgres:
+      version: "16"
+      image: ghcr.io/cloudnative-pg/postgresql:16
+    replicaCount: 3
+    volume:
+      capacity: 10Gi
+      class: standard-rwo
+    compute:
+      maxCpu: "2"
+      maxMemory: 2Gi
+      minCpu: "1"
+      minMemory: 1Gi
+    archive:
+      enabled: false
+      retentionDays: 7
+    observability:
+      metricsEnabled: true
+      logsEnabled: true
+    scheduling:
+      nodeSelector: {}
+      tolerations: []
+    networking:
+      serviceType: ClusterIP
+      loadBalancerIP: ""

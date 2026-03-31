@@ -1,0 +1,6 @@
+apiVersion: v2
+name: cnpg-cluster-team-b
+description: CNPG Cluster Chart for Team B - uses override hierarchy
+type: application
+version: 1.0.0
+appVersion: "1.16.0"
