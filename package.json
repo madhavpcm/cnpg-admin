@@ -10,6 +10,7 @@
     },
     "dependencies": {
         "@kubernetes/client-node": "^1.4.0",
+        "@octokit/rest": "^22.0.1",
         "isomorphic-git": "^1.37.4",
         "js-yaml": "^4.1.1",
         "memfs": "^4.57.1",

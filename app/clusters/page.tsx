@@ -4,12 +4,13 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Loading } from '@/components/Loading';
+import { SyncBadge } from '@/components/gitops/SyncBadge';
+import { GitOpsConfig, SyncState } from '@/lib/types/gitops';
 
 interface RawCluster {
-    metadata: { name: string; namespace: string };
+    metadata: { name: string; namespace: string; labels?: any; annotations?: any; creationTimestamp?: string };
     spec?: { instances?: number; imageName?: string };
     status?: { phase?: string; readyInstances?: number };
-    gitops?: { status: string };
 }
 
 interface ClusterRow {
@@ -18,17 +19,16 @@ interface ClusterRow {
     status: string;
     instances: number;
     ready: number;
-    gitopsStatus: string;
+    syncStatus?: SyncState['clusters'][string]['status'];
 }
 
 function parseCluster(raw: RawCluster): ClusterRow {
     return {
-        name: raw.metadata.name,
-        namespace: raw.metadata.namespace,
+        name: raw.metadata?.name ?? 'Unknown',
+        namespace: raw.metadata?.namespace ?? 'Unknown',
         status: raw.status?.phase ?? 'Unknown',
         instances: raw.spec?.instances ?? 0,
         ready: raw.status?.readyInstances ?? 0,
-        gitopsStatus: raw.gitops?.status ?? 'NOT_GITOPS',
     };
 }
 
@@ -38,49 +38,74 @@ function statusBadge(status: string) {
     return 'badge badge-info';
 }
 
-function gitopsBadge(status: string) {
-    switch (status) {
-        case 'HELM_GITOPS': return 'badge badge-primary';
-        case 'HELM_UNCONNECTED': return 'badge badge-warning';
-        default: return 'badge badge-secondary';
-    }
-}
-
-function gitopsLabel(status: string) {
-    switch (status) {
-        case 'HELM_GITOPS': return 'GitOps';
-        case 'HELM_UNCONNECTED': return 'Helm';
-        default: return 'Direct';
-    }
-}
-
 export default function ClustersPage() {
     const [clusters, setClusters] = useState<ClusterRow[]>([]);
     const [namespaces, setNamespaces] = useState<string[]>([]);
     const [selectedNamespace, setSelectedNamespace] = useState('All Namespaces');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [gitOpsConfig, setGitOpsConfig] = useState<GitOpsConfig | null>(null);
+    const [syncState, setSyncState] = useState<SyncState | null>(null);
     const router = useRouter();
 
     useEffect(() => {
+        setLoading(true);
+        const nsParam = selectedNamespace === 'All Namespaces' ? '' : `?namespace=${selectedNamespace}`;
+
         Promise.all([
-            fetch('/api/clusters').then((r) => r.json()),
+            fetch(`/api/clusters${nsParam}`).then((r) => r.json()),
             fetch('/api/namespaces').then((r) => r.json()),
+            fetch('/api/gitops/config').then((r) => r.json()),
         ])
-            .then(([clustersData, namespacesData]) => {
+            .then(([clustersData, namespacesData, configData]) => {
                 const items = Array.isArray(clustersData) ? clustersData : [];
-                setClusters(items.map(parseCluster));
                 setNamespaces(Array.isArray(namespacesData) ? namespacesData : []);
+
+                if (configData && configData.enabled) {
+                    setGitOpsConfig(configData);
+                    fetch('/api/gitops/drift')
+                        .then(r => r.json())
+                        .then(driftData => {
+                            setSyncState(driftData);
+                            setClusters(items.map(raw => {
+                                const row = parseCluster(raw);
+                                const key = `${row.namespace}/${row.name}`;
+                                if (driftData?.clusters?.[key]) {
+                                    row.syncStatus = driftData.clusters[key].status;
+                                }
+                                return row;
+                            }));
+                        })
+                        .catch(err => {
+                            console.error('Failed to fetch drift:', err);
+                            setClusters(items.map(parseCluster));
+                        });
+                } else {
+                    setClusters(items.map(parseCluster));
+                }
             })
             .catch((e) => setError(String(e)))
             .finally(() => {
                 setTimeout(() => setLoading(false), 400);
             });
-    }, []);
+    }, [selectedNamespace]);
 
-    const filteredClusters = selectedNamespace === 'All Namespaces'
-        ? clusters
-        : clusters.filter((c) => c.namespace === selectedNamespace);
+    const refreshSync = () => {
+        fetch('/api/gitops/drift')
+            .then(r => r.json())
+            .then(driftData => {
+                setSyncState(driftData);
+                setClusters(prev => prev.map(row => {
+                    const key = `${row.namespace}/${row.name}`;
+                    return {
+                        ...row,
+                        syncStatus: driftData?.clusters?.[key]?.status || row.syncStatus
+                    };
+                }));
+            });
+    };
+
+    if (loading && clusters.length === 0) return <Loading message="Fetching Clusters.." />;
 
     return (
         <div className="page">
@@ -91,28 +116,27 @@ export default function ClustersPage() {
                 </div>
                 <div className="flex gap-4">
                     <select
-                        className="select"
+                        style={{ width: 'auto', minWidth: '180px' }}
                         value={selectedNamespace}
                         onChange={(e) => setSelectedNamespace(e.target.value)}
-                        style={{ width: 'auto', minWidth: 200 }}
                     >
                         <option>All Namespaces</option>
                         {namespaces.map(ns => <option key={ns} value={ns}>{ns}</option>)}
                     </select>
-                    <Link href="/clusters/new" className="btn btn-primary">
+                    <Link href="/clusters/new" className="btn btn-primary" style={{ whiteSpace: 'nowrap' }}>
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                             <line x1="12" y1="5" x2="12" y2="19" />
                             <line x1="5" y1="12" x2="19" y2="12" />
                         </svg>
-                        Create New Cluster
+                        New Cluster
                     </Link>
                 </div>
             </div>
 
-            {error && <div className="alert alert-error">{error}</div>}
+            {error && <div className="alert alert-error mb-6">{error}</div>}
 
-            {loading ? (
-                <Loading message="Fetching clusters from Kubernetes.." />
+            {loading && clusters.length > 0 ? (
+                <Loading message="Refreshing latest state..." />
             ) : (
                 <table>
                     <thead>
@@ -121,47 +145,53 @@ export default function ClustersPage() {
                             <th>Namespace</th>
                             <th>Instances</th>
                             <th>Status</th>
-                            <th>Managed By</th>
-                            <th>Actions</th>
+                            {gitOpsConfig?.enabled && <th>Git Sync</th>}
+                            <th style={{ textAlign: 'right' }}>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {filteredClusters.length === 0 && (
+                        {clusters.length === 0 && (
                             <tr>
-                                <td colSpan={5} style={{ textAlign: 'center', color: 'var(--gray-3)', padding: '40px' }}>
+                                <td colSpan={gitOpsConfig?.enabled ? 6 : 5} style={{ textAlign: 'center', padding: '60px', color: 'var(--gray-3)' }}>
                                     No clusters found in this namespace.
                                 </td>
                             </tr>
                         )}
-                        {filteredClusters.map((cl) => (
+                        {clusters.map((cl) => (
                             <tr key={`${cl.namespace}/${cl.name}`}>
                                 <td>
                                     <Link
                                         href={`/clusters/${cl.namespace}/${cl.name}`}
-                                        className="font-semibold text-blue-600 no-underline"
-                                        style={{ textDecoration: 'none' }}
+                                        className="font-bold no-underline text-blue-600"
                                     >
                                         {cl.name}
                                     </Link>
                                 </td>
                                 <td className="text-gray-500">{cl.namespace}</td>
                                 <td>
-                                    <span className="font-semibold">{cl.ready}</span>
+                                    <span className="font-bold" style={{ color: 'var(--cnp-purple)' }}>{cl.ready}</span>
                                     <span className="text-gray-300 mx-1">/</span>
                                     <span className="text-gray-500">{cl.instances}</span>
                                 </td>
                                 <td>
                                     <span className={statusBadge(cl.status)}>{cl.status}</span>
                                 </td>
-                                <td>
-                                    <span className={gitopsBadge(cl.gitopsStatus)}>{gitopsLabel(cl.gitopsStatus)}</span>
-                                </td>
-                                <td>
+                                {gitOpsConfig?.enabled && (
+                                    <td>
+                                        <SyncBadge
+                                            status={cl.syncStatus || 'unknown'}
+                                            namespace={cl.namespace}
+                                            name={cl.name}
+                                            onSync={refreshSync}
+                                        />
+                                    </td>
+                                )}
+                                <td style={{ textAlign: 'right' }}>
                                     <button
                                         className="btn btn-outline btn-sm"
                                         onClick={() => router.push(`/clusters/${cl.namespace}/${cl.name}`)}
                                     >
-                                        View Details
+                                        Details
                                     </button>
                                 </td>
                             </tr>

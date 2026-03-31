@@ -1,4 +1,4 @@
-import { getCoreApi, namespace } from '@/lib/k8s';
+import { getCoreApi } from '@/lib/k8s';
 
 export interface RepoConfig {
     id: string;
@@ -13,11 +13,13 @@ function getRepoId(url: string): string {
     return Buffer.from(url).toString('hex').slice(0, 12);
 }
 
+const GITOPS_NAMESPACE = 'cnpg-system';
+
 export async function listRepos(): Promise<RepoConfig[]> {
     try {
         const coreApi = getCoreApi();
         const res = await coreApi.listNamespacedSecret({
-            namespace,
+            namespace: GITOPS_NAMESPACE,
             labelSelector: `${SECRET_LABEL}=true`,
         });
 
@@ -48,7 +50,7 @@ export async function saveRepo(url: string, branch: string, token?: string): Pro
         kind: 'Secret',
         metadata: {
             name: secretName,
-            namespace,
+            namespace: GITOPS_NAMESPACE,
             labels: {
                 [SECRET_LABEL]: 'true'
             }
@@ -62,11 +64,12 @@ export async function saveRepo(url: string, branch: string, token?: string): Pro
     };
 
     try {
-        await coreApi.readNamespacedSecret({ name: secretName, namespace });
-        await coreApi.replaceNamespacedSecret({ name: secretName, namespace, body: secretBody });
+        await coreApi.readNamespacedSecret({ name: secretName, namespace: GITOPS_NAMESPACE });
+        await coreApi.replaceNamespacedSecret({ name: secretName, namespace: GITOPS_NAMESPACE, body: secretBody });
     } catch (e: any) {
-        if (e.status === 404) {
-            await coreApi.createNamespacedSecret({ namespace, body: secretBody });
+        const statusCode = e.response?.statusCode || e.body?.code || e.code || e.status;
+        if (statusCode === 404) {
+            await coreApi.createNamespacedSecret({ namespace: GITOPS_NAMESPACE, body: secretBody });
         } else {
             throw e;
         }

@@ -1,4 +1,6 @@
 import * as k8s from '@kubernetes/client-node';
+import * as fs from 'fs';
+import { GitOpsConfig } from './types/gitops';
 
 const CLUSTERS_GROUP = 'postgresql.cnpg.io';
 const CLUSTERS_VERSION = 'v1';
@@ -6,15 +8,32 @@ const CLUSTERS_PLURAL = 'clusters';
 
 export const isMock = process.env.MOCK_K8S === 'true';
 export const namespace = process.env.K8S_NAMESPACE ?? 'cnpg-system';
+const GITOPS_NAMESPACE = 'cnpg-system';
 
 let _kc: k8s.KubeConfig | null = null;
 function getKubeConfig() {
     if (!_kc) {
         _kc = new k8s.KubeConfig();
         if (process.env.KUBECONFIG) {
+            console.log('[k8s] Loading KubeConfig from file:', process.env.KUBECONFIG);
             _kc.loadFromFile(process.env.KUBECONFIG);
         } else {
+            console.log('[k8s] Loading KubeConfig from default location');
             _kc.loadFromDefault();
+        }
+
+        const cluster = _kc.getCurrentCluster();
+        if (cluster) {
+            console.log('[k8s] Active Cluster:', cluster.name, '@', cluster.server);
+
+            // Fix for mirrord/local dev
+            if (process.env.NODE_ENV !== 'production' || process.env.K8S_SKIP_TLS_VERIFY === 'true') {
+                (cluster as any).skipTLSVerify = true;
+                if (cluster.server?.includes('//localhost:')) {
+                    (cluster as any).server = cluster.server.replace('//localhost:', '//127.0.0.1:');
+                    console.log('[k8s] Mapped localhost to 127.0.0.1:', cluster.server);
+                }
+            }
         }
     }
     return _kc;
@@ -38,8 +57,19 @@ export function getCoreApi() {
 
 // ---- Real k8s helpers ----
 
-export async function listClusters() {
+export async function listClusters(ns?: string) {
     const api = getCustomApi();
+
+    if (ns && ns !== 'All Namespaces') {
+        const res = await api.listNamespacedCustomObject({
+            group: CLUSTERS_GROUP,
+            version: CLUSTERS_VERSION,
+            namespace: ns,
+            plural: CLUSTERS_PLURAL,
+        });
+        return (res as any).items ?? [];
+    }
+
     const res = await api.listCustomObjectForAllNamespaces({
         group: CLUSTERS_GROUP,
         version: CLUSTERS_VERSION,
@@ -113,6 +143,32 @@ export async function createCluster(ns: string, body: object) {
     });
 }
 
+export async function applyCluster(ns: string, body: any) {
+    const api = getCustomApi();
+    const name = body.metadata.name;
+    try {
+        await getCluster(ns, name);
+        // Exists, so patch
+        return api.patchNamespacedCustomObject({
+            group: CLUSTERS_GROUP,
+            version: CLUSTERS_VERSION,
+            namespace: ns,
+            plural: CLUSTERS_PLURAL,
+            name: name,
+            body: body,
+        }, {
+            headers: { 'Content-Type': 'application/merge-patch+json' }
+        } as any);
+    } catch (e: any) {
+        const statusCode = e.response?.statusCode || e.body?.code || e.code || e.status;
+        if (statusCode === 404) {
+            // Not found, so create
+            return createCluster(ns, body);
+        }
+        throw e;
+    }
+}
+
 export async function deleteCluster(ns: string, name: string) {
     const api = getCustomApi();
     return api.deleteNamespacedCustomObject({
@@ -126,8 +182,13 @@ export async function deleteCluster(ns: string, name: string) {
 
 export async function listNamespaces() {
     const coreApi = getCoreApi();
-    const res = await coreApi.listNamespace();
-    return (res as any).items ?? [];
+    try {
+        const res = await coreApi.listNamespace();
+        return (res as any).items ?? [];
+    } catch (e: any) {
+        console.warn('[k8s] Failed to list namespaces, falling back to current namespace:', namespace, e.message);
+        return [{ metadata: { name: namespace } }];
+    }
 }
 
 export async function listPods(ns: string, clusterName: string) {
@@ -184,7 +245,116 @@ export async function getClusterCredentials(ns: string, clusterName: string) {
     };
 }
 
-// ---- Mock data ----
+// ---- GitOps Config & Secrets ----
+
+const GITOPS_CONFIG_MAP = 'cnpg-admin-gitops-config';
+const GITOPS_SECRET_NAME = 'cnpg-admin-gitops-auth';
+
+export async function getGitOpsConfig(): Promise<GitOpsConfig | null> {
+    const coreApi = getCoreApi();
+    try {
+        const res = await coreApi.readNamespacedConfigMap({
+            name: GITOPS_CONFIG_MAP,
+            namespace: GITOPS_NAMESPACE,
+        });
+        const data = (res as any).data?.config;
+        console.log('[k8s] getGitOpsConfig raw data:', data);
+        if (!data) return null;
+        return JSON.parse(data);
+    } catch (e: any) {
+        const statusCode = e.response?.statusCode || e.body?.code || e.code || e.status;
+        if (statusCode === 404) return null;
+        return null;
+    }
+}
+
+export async function saveGitOpsConfig(config: GitOpsConfig) {
+    const coreApi = getCoreApi();
+    const configData = JSON.stringify(config);
+    console.log('[k8s] saveGitOpsConfig writing:', configData);
+
+    try {
+        await coreApi.readNamespacedConfigMap({
+            name: GITOPS_CONFIG_MAP,
+            namespace: GITOPS_NAMESPACE,
+        });
+        // Update
+        return coreApi.replaceNamespacedConfigMap({
+            name: GITOPS_CONFIG_MAP,
+            namespace: GITOPS_NAMESPACE,
+            body: {
+                metadata: { name: GITOPS_CONFIG_MAP },
+                data: { config: configData }
+            }
+        });
+    } catch (e: any) {
+        const statusCode = e.response?.statusCode || e.body?.code || e.code || e.status;
+        if (statusCode === 404) {
+            // Create
+            return coreApi.createNamespacedConfigMap({
+                namespace: GITOPS_NAMESPACE,
+                body: {
+                    metadata: { name: GITOPS_CONFIG_MAP },
+                    data: { config: configData }
+                }
+            });
+        }
+        throw e;
+    }
+}
+
+export async function getGitToken(secretName?: string): Promise<string | null> {
+    const coreApi = getCoreApi();
+    const name = secretName || GITOPS_SECRET_NAME;
+    try {
+        const res = await coreApi.readNamespacedSecret({
+            name: name,
+            namespace: GITOPS_NAMESPACE,
+        });
+        const data = (res as any).data?.token;
+        if (!data) return null;
+        return Buffer.from(data, 'base64').toString('utf8');
+    } catch (e: any) {
+        const statusCode = e.response?.statusCode || e.body?.code || e.code || e.status;
+        if (statusCode === 404) return null;
+        return null;
+    }
+}
+
+export async function saveGitToken(token: string, secretName?: string) {
+    const coreApi = getCoreApi();
+    const name = secretName || GITOPS_SECRET_NAME;
+    const b64Token = Buffer.from(token).toString('base64');
+
+    try {
+        await coreApi.readNamespacedSecret({
+            name: name,
+            namespace: GITOPS_NAMESPACE,
+        });
+        // Update
+        return coreApi.replaceNamespacedSecret({
+            name: name,
+            namespace: GITOPS_NAMESPACE,
+            body: {
+                metadata: { name: name },
+                data: { token: b64Token }
+            }
+        });
+    } catch (e: any) {
+        const statusCode = e.response?.statusCode || e.body?.code || e.code || e.status;
+        if (statusCode === 404) {
+            // Create
+            return coreApi.createNamespacedSecret({
+                namespace: GITOPS_NAMESPACE,
+                body: {
+                    metadata: { name: name },
+                    data: { token: b64Token }
+                }
+            });
+        }
+        throw e;
+    }
+}
 
 export const mockClusters = [
     {

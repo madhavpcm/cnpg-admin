@@ -1,27 +1,15 @@
 {
     "version": "0.2.0",
+    "cwd": "${workspaceFolder}/gitops-design-2",
     "configurations": [
         {
-            "name": "CNPG Admin Server (Mock)",
-            "type": "go",
-            "request": "launch",
-            "mode": "auto",
-            "program": "${workspaceFolder}/cmd/server",
-            "env": {
-                "MOCK_K8S": "true",
-                "PORT": "8080"
-            }
-        },
-        {
-            "name": "CNPG Admin Server (Real K8s)",
-            "type": "go",
-            "request": "launch",
-            "mode": "auto",
-            "program": "${workspaceFolder}/cmd/server",
-            "env": {
-                "MOCK_K8S": "false",
-                "PORT": "8080"
-            }
+            "name": "Attach",
+            "port": 3000,
+            "request": "attach",
+            "skipFiles": [
+                "<node_internals>/**"
+            ],
+            "type": "node"
         }
-    ]
+    ],
 }
