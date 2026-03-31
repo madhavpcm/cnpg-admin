@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { isMock, patchCluster } from '@/lib/k8s';
+import { driftReconciler } from '@/lib/gitops/reconciler';
 
 interface Params {
     params: Promise<{ namespace: string; name: string }>;
@@ -13,6 +14,7 @@ export async function POST(req: Request, { params }: Params) {
     try {
         const { instances } = await req.json();
         await patchCluster(namespace, name, { spec: { instances } });
+        await driftReconciler.triggerReconciliation();
         return NextResponse.json({ ok: true });
     } catch (e) {
         console.error(`[/api/clusters/${namespace}/${name}/scale] POST failed:`, e);

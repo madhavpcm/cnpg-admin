@@ -1,5 +1,8 @@
 {
-    "target": "deployment/cnpg-admin",
+    "target": {
+        "path": "deployment/cnpg-admin",
+        "namespace": "cnpg-system"
+    },
     "feature": {
         "network": {
             "incoming": "steal",

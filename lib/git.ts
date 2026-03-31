@@ -51,7 +51,10 @@ export class GitService {
                 content: Buffer.from(data.content, 'base64').toString('utf8'),
                 sha: data.sha,
             };
-        } catch (e) {
+        } catch (e: any) {
+            if (e.status !== 404) {
+                console.error(`[git] getFile error for ${path}: status=${e.status}, msg=${e.message}`);
+            }
             return null;
         }
     }
@@ -69,7 +72,7 @@ export class GitService {
             for (const item of data) {
                 if (item.type === 'dir') {
                     // Item is <cluster-id>, now look for <namespace>/<name>.yaml
-                    const nsData: any = await this.octokit.repos.getContent({
+                    const { data: nsData }: any = await this.octokit.repos.getContent({
                         owner: this.owner,
                         repo: this.repo,
                         path: item.path,
@@ -78,7 +81,7 @@ export class GitService {
 
                     for (const nsItem of nsData) {
                         if (nsItem.type === 'dir') {
-                            const files: any = await this.octokit.repos.getContent({
+                            const { data: files }: any = await this.octokit.repos.getContent({
                                 owner: this.owner,
                                 repo: this.repo,
                                 path: nsItem.path,
@@ -113,18 +116,23 @@ export class GitService {
 
     async pushCluster(ns: string, name: string, content: string, message?: string) {
         const clusterId = 'production'; // TODO: make dynamic
-        const filePath = `${this.path}/${clusterId}/${ns}/${name}.yaml`;
+        const filePath = `${this.path}/${clusterId}/${ns}/${name}.yaml`.replace(/^\//, '');
         const existing = await this.getFile(filePath);
 
-        return this.octokit.repos.createOrUpdateFileContents({
-            owner: this.owner,
-            repo: this.repo,
-            path: filePath,
-            message: message || `Update cluster ${name} in ${ns}`,
-            content: Buffer.from(content).toString('base64'),
-            branch: this.branch,
-            sha: existing?.sha,
-        });
+        try {
+            return await this.octokit.repos.createOrUpdateFileContents({
+                owner: this.owner,
+                repo: this.repo,
+                path: filePath,
+                message: message || `Update cluster ${name} in ${ns}`,
+                content: Buffer.from(content).toString('base64'),
+                branch: this.branch,
+                sha: existing?.sha,
+            });
+        } catch (e: any) {
+            console.error(`[git] pushCluster failed for ${filePath}. existing_sha=${existing?.sha}, status=${e.status}, msg=${e.message}`);
+            throw e;
+        }
     }
 
     async deleteClusterFile(ns: string, name: string, message?: string) {

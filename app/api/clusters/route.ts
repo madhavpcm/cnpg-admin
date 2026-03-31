@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { isMock, mockClusters, listClusters, createCluster, namespace as defaultNamespace } from '@/lib/k8s';
 import { getGitService } from '@/lib/git';
 import { SyncService } from '@/lib/sync';
+import { driftReconciler } from '@/lib/gitops/reconciler';
 import * as fs from 'fs';
 
 export async function GET(request: Request) {
@@ -72,6 +73,10 @@ export async function POST(request: Request) {
         }
 
         log(`[api/clusters] Returning response to client`);
+        
+        // Asynchronously check drift and update cache
+        await driftReconciler.triggerReconciliation();
+
         return NextResponse.json({ ...result, _prUrl: prUrl });
     } catch (e: any) {
         fs.appendFileSync('/tmp/debug.log', `[${new Date().toISOString()}] [/api/clusters] POST failed: ${e}\n`);

@@ -69,6 +69,22 @@ export default function GitOpsPage() {
         }
     };
 
+    const handleCheckDrift = async () => {
+        setBulkLoading(true);
+        try {
+            const res = await fetch('/api/gitops/drift', { method: 'POST' });
+            if (res.ok) {
+                fetchData();
+            } else {
+                alert('Failed to trigger drift reconciliation.');
+            }
+        } catch (err) {
+            alert('Reconciliation failed: ' + err);
+        } finally {
+            setBulkLoading(false);
+        }
+    };
+
     if (loading) return <Loading message="Loading GitOps Dashboard.." />;
 
     return (
@@ -82,8 +98,16 @@ export default function GitOpsPage() {
                 </div>
                 <div className="flex gap-4">
                     <button
+                        onClick={handleCheckDrift}
+                        disabled={bulkLoading || !config?.repoUrl}
+                        className="btn btn-secondary shadow-sm"
+                        style={{ whiteSpace: 'nowrap' }}
+                    >
+                        {bulkLoading ? 'Working..' : 'Check Drift Now'}
+                    </button>
+                    <button
                         onClick={handleApplyAll}
-                        disabled={bulkLoading || !config?.enabled}
+                        disabled={bulkLoading || !config?.repoUrl}
                         className="btn btn-secondary shadow-sm"
                         style={{ whiteSpace: 'nowrap' }}
                     >
@@ -91,7 +115,7 @@ export default function GitOpsPage() {
                     </button>
                     <button
                         onClick={handlePushAll}
-                        disabled={bulkLoading || !config?.enabled}
+                        disabled={bulkLoading || !config?.repoUrl}
                         className="btn btn-primary shadow-sm"
                         style={{ whiteSpace: 'nowrap' }}
                     >
@@ -110,13 +134,13 @@ export default function GitOpsPage() {
                 <GitOpsSettings config={config} onUpdate={fetchData} />
             </section>
 
-            {config?.enabled && (
+            {config?.repoUrl && (
                 <section className="mt-12">
                     <DriftTable syncState={syncState} onRefresh={fetchData} />
                 </section>
             )}
 
-            {!config?.enabled && (
+            {!config?.repoUrl && (
                 <div className="card" style={{ padding: '60px', textAlign: 'center', borderStyle: 'dashed', background: 'transparent' }}>
                     <div style={{ maxWidth: '400px', margin: '0 auto' }}>
                         <svg className="mb-4 mx-auto" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--gray-3)" strokeWidth="1.5">
