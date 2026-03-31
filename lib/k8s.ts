@@ -250,110 +250,45 @@ export async function getClusterCredentials(ns: string, clusterName: string) {
 const GITOPS_CONFIG_MAP = 'cnpg-admin-gitops-config';
 const GITOPS_SECRET_NAME = 'cnpg-admin-gitops-auth';
 
+const LOCAL_GITOPS_CONFIG_FILE = './.gitops-config.json';
+const LOCAL_GITOPS_TOKEN_FILE = './.gitops-token.txt';
+
 export async function getGitOpsConfig(): Promise<GitOpsConfig | null> {
-    const coreApi = getCoreApi();
     try {
-        const res = await coreApi.readNamespacedConfigMap({
-            name: GITOPS_CONFIG_MAP,
-            namespace: GITOPS_NAMESPACE,
-        });
-        const data = (res as any).data?.config;
-        console.log('[k8s] getGitOpsConfig raw data:', data);
-        if (!data) return null;
-        return JSON.parse(data);
+        if (fs.existsSync(LOCAL_GITOPS_CONFIG_FILE)) {
+            const data = fs.readFileSync(LOCAL_GITOPS_CONFIG_FILE, 'utf8');
+            console.log('[k8s] getGitOpsConfig local raw data:', data);
+            return JSON.parse(data);
+        }
+        return null;
     } catch (e: any) {
-        const statusCode = e.response?.statusCode || e.body?.code || e.code || e.status;
-        if (statusCode === 404) return null;
+        console.error('[k8s] Failed to read local gitops config:', e);
         return null;
     }
 }
 
 export async function saveGitOpsConfig(config: GitOpsConfig) {
-    const coreApi = getCoreApi();
-    const configData = JSON.stringify(config);
-    console.log('[k8s] saveGitOpsConfig writing:', configData);
-
-    try {
-        await coreApi.readNamespacedConfigMap({
-            name: GITOPS_CONFIG_MAP,
-            namespace: GITOPS_NAMESPACE,
-        });
-        // Update
-        return coreApi.replaceNamespacedConfigMap({
-            name: GITOPS_CONFIG_MAP,
-            namespace: GITOPS_NAMESPACE,
-            body: {
-                metadata: { name: GITOPS_CONFIG_MAP },
-                data: { config: configData }
-            }
-        });
-    } catch (e: any) {
-        const statusCode = e.response?.statusCode || e.body?.code || e.code || e.status;
-        if (statusCode === 404) {
-            // Create
-            return coreApi.createNamespacedConfigMap({
-                namespace: GITOPS_NAMESPACE,
-                body: {
-                    metadata: { name: GITOPS_CONFIG_MAP },
-                    data: { config: configData }
-                }
-            });
-        }
-        throw e;
-    }
+    const configData = JSON.stringify(config, null, 2);
+    console.log('[k8s] saveGitOpsConfig writing locally:', configData);
+    fs.writeFileSync(LOCAL_GITOPS_CONFIG_FILE, configData, 'utf8');
+    return { metadata: { name: 'local-config' } };
 }
 
 export async function getGitToken(secretName?: string): Promise<string | null> {
-    const coreApi = getCoreApi();
-    const name = secretName || GITOPS_SECRET_NAME;
     try {
-        const res = await coreApi.readNamespacedSecret({
-            name: name,
-            namespace: GITOPS_NAMESPACE,
-        });
-        const data = (res as any).data?.token;
-        if (!data) return null;
-        return Buffer.from(data, 'base64').toString('utf8');
+        if (fs.existsSync(LOCAL_GITOPS_TOKEN_FILE)) {
+            const data = fs.readFileSync(LOCAL_GITOPS_TOKEN_FILE, 'utf8');
+            return data.trim();
+        }
+        return null;
     } catch (e: any) {
-        const statusCode = e.response?.statusCode || e.body?.code || e.code || e.status;
-        if (statusCode === 404) return null;
         return null;
     }
 }
 
 export async function saveGitToken(token: string, secretName?: string) {
-    const coreApi = getCoreApi();
-    const name = secretName || GITOPS_SECRET_NAME;
-    const b64Token = Buffer.from(token).toString('base64');
-
-    try {
-        await coreApi.readNamespacedSecret({
-            name: name,
-            namespace: GITOPS_NAMESPACE,
-        });
-        // Update
-        return coreApi.replaceNamespacedSecret({
-            name: name,
-            namespace: GITOPS_NAMESPACE,
-            body: {
-                metadata: { name: name },
-                data: { token: b64Token }
-            }
-        });
-    } catch (e: any) {
-        const statusCode = e.response?.statusCode || e.body?.code || e.code || e.status;
-        if (statusCode === 404) {
-            // Create
-            return coreApi.createNamespacedSecret({
-                namespace: GITOPS_NAMESPACE,
-                body: {
-                    metadata: { name: name },
-                    data: { token: b64Token }
-                }
-            });
-        }
-        throw e;
-    }
+    fs.writeFileSync(LOCAL_GITOPS_TOKEN_FILE, token, 'utf8');
+    return { metadata: { name: 'local-token' } };
 }
 
 export const mockClusters = [
