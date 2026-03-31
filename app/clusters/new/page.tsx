@@ -36,8 +36,10 @@ export default function NewClusterPage() {
         const body = {
             apiVersion: 'postgresql.cnpg.io/v1',
             kind: 'Cluster',
-            metadata: { name },
-            namespace: selectedNamespace, // Send namespace in body
+            metadata: { 
+                name,
+                namespace: selectedNamespace 
+            },
             spec: {
                 instances,
                 storage: { size: storage },

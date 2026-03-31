@@ -143,6 +143,68 @@ export class GitService {
         });
     }
 
+    async createPR(ns: string, name: string, content: string, title: string, body: string = ''): Promise<string> {
+        const clusterId = 'production'; // TODO: make dynamic
+        const filePath = `${this.path}/${clusterId}/${ns}/${name}.yaml`;
+        
+        // 1. Get base branch SHA
+        const { data: ref } = await this.octokit.git.getRef({
+            owner: this.owner,
+            repo: this.repo,
+            ref: `heads/${this.branch}`,
+        });
+        const baseSha = ref.object.sha;
+
+        // 2. Create a new branch
+        const newBranch = `cnpg-admin/cluster-${name}-${Date.now()}`;
+        await this.octokit.git.createRef({
+            owner: this.owner,
+            repo: this.repo,
+            ref: `refs/heads/${newBranch}`,
+            sha: baseSha,
+        });
+
+        // 3. Create or Update file in new branch
+        const existing = await this.getFile(filePath);
+        await this.octokit.repos.createOrUpdateFileContents({
+            owner: this.owner,
+            repo: this.repo,
+            path: filePath,
+            message: title,
+            content: Buffer.from(content).toString('base64'),
+            branch: newBranch,
+            sha: existing?.sha,
+        });
+
+        // 4. Create Pull Request
+        const { data: pr } = await this.octokit.pulls.create({
+            owner: this.owner,
+            repo: this.repo,
+            title: title,
+            head: newBranch,
+            base: this.branch,
+            body: body,
+        });
+
+        return pr.html_url;
+    }
+
+    async hasOpenPR(ns: string, name: string): Promise<boolean> {
+        try {
+            const { data: prs } = await this.octokit.pulls.list({
+                owner: this.owner,
+                repo: this.repo,
+                state: 'open',
+            });
+
+            const branchPrefix = `cnpg-admin/cluster-${name}-`;
+            return prs.some((pr: any) => pr.head.ref.startsWith(branchPrefix));
+        } catch (e: any) {
+            console.error('[git] Failed to check for open PRs:', e.message || e);
+            return false; // Fail open if github API errors
+        }
+    }
+
     async testConnection(): Promise<boolean> {
         try {
             await this.octokit.repos.get({

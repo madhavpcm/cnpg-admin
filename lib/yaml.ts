@@ -20,7 +20,10 @@ export function stringifyClusterYaml(cluster: any): string {
         metadata: {
             name: cluster.metadata.name,
             namespace: cluster.metadata.namespace,
-            labels: cluster.metadata.labels,
+            labels: {
+                ...(cluster.metadata.labels || {}),
+                'managed-by': 'cnpg-admin'
+            },
             annotations: cluster.metadata.annotations,
         },
         spec: cluster.spec,

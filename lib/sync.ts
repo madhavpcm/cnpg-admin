@@ -86,4 +86,9 @@ export class SyncService {
         const yaml = stringifyClusterYaml(localCluster);
         return this.git.pushCluster(ns, name, yaml, message);
     }
+
+    async createPRToGit(ns: string, name: string, localCluster: any, title: string, body?: string): Promise<string> {
+        const yaml = stringifyClusterYaml(localCluster);
+        return this.git.createPR(ns, name, yaml, title, body);
+    }
 }
