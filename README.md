@@ -2,6 +2,8 @@
 
 ![CNPG Admin Logo](public/logo.png)
 
+** LLMS were used in the creation of this project **
+
 ### The missing UI for CloudNativePG (PostgreSQL Operator for Kubernetes)
 
 **CNPG Admin** is a an, enterprise-focused web interface designed to manage [CloudNativePG](https://cloudnative-pg.io/) clusters. While the operator provides powerful automation through CRDs and `kubectl`, CNPG Admin bridges the gap for **DBAs and Developers** who need a visual, intuitive way to manage database lifecycles without mastering the nuances of DevOps tooling.
