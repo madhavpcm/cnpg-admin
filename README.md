@@ -84,6 +84,16 @@ npm install
 npm run dev
 ```
 
+### Dev in K8s Environment
+
+Install `mirrord` - https://metalbear.com/mirrord/docs/getting-started/quick-start
+This will run the process as if it was running inside a pod, and you can develop the kube native way easily.
+
+```
+kubectl apply -f deploy/mirrord-target.yaml
+mirrord exec --config ./mirrord.json -- npm run dev
+```
+
 ### Deploying to Kubernetes
 CNPG Admin is designed to run within the `cnpg-system` namespace to share the operator's context.
 
